@@ -148,22 +148,20 @@ class Md2DocApp(tk.Tk):
         )
         self.progress_bar.grid(row=0, column=1, sticky="ew")
 
-        columns = ("state", "file", "output", "reason")
+        columns = ("state", "file", "reason")
         self.tree = ttk.Treeview(main, columns=columns, show="headings", selectmode="extended")
         self.tree.heading("state", text="State")
         self.tree.heading("file", text="Markdown")
-        self.tree.heading("output", text="Output")
         self.tree.heading("reason", text="Reason")
-        self.tree.column("state", width=self._px(108), anchor="w", stretch=False)
-        self.tree.column("file", width=self._px(320), anchor="w")
-        self.tree.column("output", width=self._px(300), anchor="w")
+        self.tree.column("state", width=self._px(118), anchor="w", stretch=False)
+        self.tree.column("file", width=self._px(430), anchor="w")
         self.tree.column("reason", width=self._px(260), anchor="w")
-        self.tree.tag_configure("skip", foreground="#666")
-        self.tree.tag_configure("convert", foreground="#111")
-        self.tree.tag_configure("queued", foreground="#555")
-        self.tree.tag_configure("running", foreground="#0b5cad")
-        self.tree.tag_configure("done", foreground="#127a3a")
-        self.tree.tag_configure("failed", foreground="#b00020")
+        self.tree.tag_configure("skip", foreground="#555", background="#f4f5f7", font=self.state_font)
+        self.tree.tag_configure("convert", foreground="#6f4e00", background="#fff3c4", font=self.state_font)
+        self.tree.tag_configure("queued", foreground="#444", background="#eef1f5", font=self.state_font)
+        self.tree.tag_configure("running", foreground="#0b5cad", background="#e6f2ff", font=self.state_font)
+        self.tree.tag_configure("done", foreground="#127a3a", background="#e7f6ed", font=self.state_font)
+        self.tree.tag_configure("failed", foreground="#b00020", background="#fde8e8", font=self.state_font)
         self.tree.grid(row=2, column=0, sticky="nsew")
 
         scrollbar = ttk.Scrollbar(main, orient="vertical", command=self.tree.yview)
@@ -185,6 +183,7 @@ class Md2DocApp(tk.Tk):
         self.text_font.configure(family="Segoe UI", size=10)
         self.heading_font = tkfont.Font(family="Segoe UI", size=12, weight="bold")
         self.table_heading_font = tkfont.Font(family="Segoe UI", size=10, weight="bold")
+        self.state_font = tkfont.Font(family="Segoe UI", size=10, weight="bold")
         self.mono_font = tkfont.Font(family="Cascadia Mono", size=9)
         self.option_add("*Font", self.default_font)
 
@@ -412,7 +411,6 @@ class Md2DocApp(tk.Tk):
         values = (
             _state_label(item.action),
             item.relative_source,
-            str(item.output),
             _reason_label(item.reason),
         )
         if self.tree.exists(iid):
@@ -433,10 +431,10 @@ class Md2DocApp(tk.Tk):
             iid = self.iid_by_source.get(str(item.source), self._next_iid())
             self._insert_or_update_plan_item(iid, item)
             if item.action == "convert":
-                self._set_item_state(item, "Queued", "Waiting for Pandoc", "queued")
+                self._set_item_state(item, _state_label("queued"), "Waiting for Pandoc", "queued")
 
     def _mark_item_running(self, item: PlanItem) -> None:
-        self._set_item_state(item, "Converting", "Running Pandoc", "running")
+        self._set_item_state(item, _state_label("running"), "Running Pandoc", "running")
         self.status_var.set(f"Converting {item.relative_source} ({self.conversion_done}/{self.conversion_total})")
 
     def _handle_conversion_result(self, result: ConversionResult) -> None:
@@ -444,13 +442,13 @@ class Md2DocApp(tk.Tk):
         self.progress_var.set(self.conversion_done)
         if result.status == "converted":
             self.converted_count += 1
-            self._set_item_state(result.item, "Done", "Output generated", "done")
+            self._set_item_state(result.item, _state_label("done"), "Output generated", "done")
         elif result.status == "skipped":
             self.skipped_count += 1
-            self._set_item_state(result.item, "Skipped", _reason_label(result.message), "skip")
+            self._set_item_state(result.item, _state_label("skipped"), _reason_label(result.message), "skip")
         else:
             self.failed_count += 1
-            self._set_item_state(result.item, "Failed", result.message, "failed")
+            self._set_item_state(result.item, _state_label("failed"), result.message, "failed")
         self.status_var.set(
             f"Progress {self.conversion_done}/{self.conversion_total}: "
             f"{self.converted_count} converted, {self.skipped_count} skipped, {self.failed_count} failed"
@@ -464,7 +462,7 @@ class Md2DocApp(tk.Tk):
             self._insert_or_update_plan_item(iid, item)
         self.tree.item(
             iid,
-            values=(state, item.relative_source, str(item.output), reason),
+            values=(state, item.relative_source, reason),
             tags=(tag,),
         )
         self.tree.see(iid)
@@ -764,8 +762,13 @@ def _detect_ui_scale(root: tk.Tk) -> float:
 
 def _state_label(action: str) -> str:
     return {
-        "convert": "Needs convert",
-        "skip": "Can skip",
+        "convert": "[CONVERT]",
+        "skip": "[SKIP]",
+        "queued": "[QUEUED]",
+        "running": "[RUNNING]",
+        "done": "[DONE]",
+        "skipped": "[SKIPPED]",
+        "failed": "[FAILED]",
     }.get(action, action)
 
 
