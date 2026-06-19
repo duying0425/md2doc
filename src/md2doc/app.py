@@ -18,10 +18,17 @@ from .converter import (
     missing_dependency_message,
     plan_conversions,
     run_conversions,
-    scan_markdown_files,
+    scan_source_files,
     settings_from_project,
 )
-from .project import ProjectConfig, ProjectRegistry, create_project, load_project
+from .project import (
+    KIND_DOC2MD,
+    KIND_MD2DOC,
+    ProjectConfig,
+    ProjectRegistry,
+    create_project,
+    load_project,
+)
 
 
 class Md2DocApp(tk.Tk):
@@ -214,6 +221,9 @@ class Md2DocApp(tk.Tk):
             self._set_project(self.projects[0])
 
     def _new_project(self) -> None:
+        kind = self._choose_project_kind()
+        if kind is None:
+            return
         folder = filedialog.askdirectory(title="Select a project folder")
         if not folder:
             return
@@ -221,9 +231,59 @@ class Md2DocApp(tk.Tk):
         name = simpledialog.askstring("Project name", "Name", initialvalue=default_name, parent=self)
         if name is None:
             return
-        project = create_project(folder, name.strip() or default_name)
-        self._append_log(f"Created project: {project.root}")
+        project = create_project(folder, name.strip() or default_name, kind=kind)
+        self._append_log(f"Created {_kind_label(project.kind)} project: {project.root}")
         self._load_projects()
+
+    def _choose_project_kind(self) -> str | None:
+        dialog = tk.Toplevel(self)
+        dialog.title("New project type")
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+
+        frame = ttk.Frame(dialog, padding=self._px(16))
+        frame.grid(row=0, column=0, sticky="nsew")
+        ttk.Label(frame, text="What should this project convert?").grid(
+            row=0, column=0, sticky="w", pady=self._pad(0, 10)
+        )
+
+        kind_var = tk.StringVar(value=KIND_MD2DOC)
+        ttk.Radiobutton(
+            frame,
+            text="Markdown  ->  Word / HTML / PDF   (Pandoc)",
+            variable=kind_var,
+            value=KIND_MD2DOC,
+        ).grid(row=1, column=0, sticky="w", pady=self._pad(2, 0))
+        ttk.Radiobutton(
+            frame,
+            text="Word / PPT / Excel  ->  Markdown   (MarkItDown)",
+            variable=kind_var,
+            value=KIND_DOC2MD,
+        ).grid(row=2, column=0, sticky="w", pady=self._pad(2, 0))
+
+        result: dict[str, str | None] = {"kind": None}
+
+        def confirm() -> None:
+            result["kind"] = kind_var.get()
+            dialog.destroy()
+
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=3, column=0, sticky="e", pady=self._pad(16, 0))
+        ttk.Button(buttons, text="Cancel", command=dialog.destroy).grid(row=0, column=0, padx=self._pad(0, 8))
+        ttk.Button(buttons, text="Continue", command=confirm).grid(row=0, column=1)
+
+        dialog.bind("<Return>", lambda _event: confirm())
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        self._center_window(dialog)
+        self.wait_window(dialog)
+        return result["kind"]
+
+    def _center_window(self, window: tk.Toplevel) -> None:
+        window.update_idletasks()
+        x = self.winfo_rootx() + max(0, (self.winfo_width() - window.winfo_width()) // 2)
+        y = self.winfo_rooty() + max(0, (self.winfo_height() - window.winfo_height()) // 2)
+        window.geometry(f"+{x}+{y}")
 
     def _remove_project(self) -> None:
         project = self.current_project
@@ -246,12 +306,24 @@ class Md2DocApp(tk.Tk):
             self.current_project.output_dir = "."
             self.current_project.save()
             self.registry.add(self.current_project)
-        self.project_label.configure(text=self.current_project.name)
+        self.project_label.configure(
+            text=f"{self.current_project.name}  -  {_kind_label(self.current_project.kind)}"
+        )
         self.path_label.configure(text=str(self.current_project.root))
+        self._apply_kind_to_ui(self.current_project.kind)
         self.format_var.set(self.current_project.output_format)
         self.output_var.set(self.current_project.output_dir)
         self._clear_table()
         self._scan()
+
+    def _apply_kind_to_ui(self, kind: str) -> None:
+        if kind == KIND_DOC2MD:
+            self.format_box.configure(values=("md",), state="disabled")
+            self.format_var.set("md")
+            self.tree.heading("file", text="Office document")
+        else:
+            self.format_box.configure(values=("docx", "html", "pdf"), state="readonly")
+            self.tree.heading("file", text="Markdown")
 
     def _settings(self) -> ConvertSettings:
         project = self._require_project()
@@ -272,7 +344,12 @@ class Md2DocApp(tk.Tk):
             return
         try:
             settings = self._settings()
-            sources = scan_markdown_files(project.root, recursive=settings.recursive, output_dir=settings.output_dir)
+            sources = scan_source_files(
+                project.root,
+                kind=settings.kind,
+                recursive=settings.recursive,
+                output_dir=settings.output_dir,
+            )
             planned = plan_conversions(project.root, sources, settings)
         except Exception as exc:
             messagebox.showerror("Scan failed", str(exc))
@@ -284,12 +361,12 @@ class Md2DocApp(tk.Tk):
         convert_count = sum(1 for item in planned if item.action == "convert")
         skip_count = len(planned) - convert_count
         self.status_var.set(f"Scanned {len(planned)} file(s): {convert_count} to convert, {skip_count} skipped")
-        self._append_log(f"Scanned {len(planned)} Markdown file(s).")
+        self._append_log(f"Scanned {len(planned)} {_input_label(project.kind)} file(s).")
 
     def _convert_selected(self) -> None:
         selection = self.tree.selection()
         if not selection:
-            messagebox.showinfo("Convert selected", "Select one or more Markdown files first.")
+            messagebox.showinfo("Convert selected", "Select one or more files first.")
             return
         sources = [self.plan_by_id[iid].source for iid in selection]
         self._start_conversion(sources)
@@ -299,7 +376,12 @@ class Md2DocApp(tk.Tk):
         if not project:
             return
         settings = self._settings()
-        sources = scan_markdown_files(project.root, recursive=settings.recursive, output_dir=settings.output_dir)
+        sources = scan_source_files(
+            project.root,
+            kind=settings.kind,
+            recursive=settings.recursive,
+            output_dir=settings.output_dir,
+        )
         self._start_conversion(sources)
 
     def _start_conversion(self, sources: list[Path]) -> None:
@@ -345,6 +427,14 @@ class Md2DocApp(tk.Tk):
 
     def _open_settings(self) -> None:
         project = self._require_project()
+        if project.kind == KIND_DOC2MD:
+            messagebox.showinfo(
+                "Project Settings",
+                "Word/PPT/Excel to Markdown projects convert with MarkItDown and have no "
+                "document formatting options. Use the Output box to choose where the .md "
+                "files are written.",
+            )
+            return
         dialog = SettingsDialog(self, project)
         self.wait_window(dialog)
         if dialog.saved:
@@ -758,6 +848,14 @@ def enable_high_dpi_awareness() -> None:
 def _detect_ui_scale(root: tk.Tk) -> float:
     dpi = max(96.0, float(root.winfo_fpixels("1i")))
     return max(1.0, min(2.5, dpi / 96.0))
+
+
+def _kind_label(kind: str) -> str:
+    return "Office to Markdown" if kind == KIND_DOC2MD else "Markdown to document"
+
+
+def _input_label(kind: str) -> str:
+    return "Office" if kind == KIND_DOC2MD else "Markdown"
 
 
 def _state_label(action: str) -> str:

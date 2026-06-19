@@ -1,9 +1,11 @@
 [project]
 name = "md2doc"
 version = "0.1.0"
-description = "Local Markdown document converter powered by Pandoc and mermaid-filter."
+description = "Local converter: Markdown to documents (Pandoc) and Word/PPT/Excel to Markdown (MarkItDown)."
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "markitdown[docx,pptx,xlsx]>=0.0.1a2",
+]
 
 [project.scripts]
 md2doc = "md2doc.cli:main"

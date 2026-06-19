@@ -10,6 +10,19 @@ from typing import Any
 PROJECT_DIR_NAME = ".md2doc"
 PROJECT_CONFIG_NAME = "project.json"
 
+KIND_MD2DOC = "md2doc"
+KIND_DOC2MD = "doc2md"
+VALID_KINDS = {KIND_MD2DOC, KIND_DOC2MD}
+
+
+def default_output_format(kind: str) -> str:
+    return "md" if kind == KIND_DOC2MD else "docx"
+
+
+def normalize_kind(value: object) -> str:
+    kind = str(value or KIND_MD2DOC)
+    return kind if kind in VALID_KINDS else KIND_MD2DOC
+
 
 def app_data_dir() -> Path:
     base = os.environ.get("APPDATA")
@@ -26,6 +39,7 @@ def registry_path() -> Path:
 class ProjectConfig:
     name: str
     root: Path
+    kind: str = KIND_MD2DOC
     output_dir: str = "."
     output_format: str = "docx"
     recursive: bool = True
@@ -65,6 +79,7 @@ class ProjectConfig:
         return {
             "name": self.name,
             "root": str(self.root),
+            "kind": self.kind,
             "output_dir": self.output_dir,
             "output_format": self.output_format,
             "recursive": self.recursive,
@@ -89,11 +104,18 @@ class ProjectConfig:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ProjectConfig":
         root = Path(data["root"]).expanduser().resolve()
+        kind = normalize_kind(data.get("kind"))
+        if kind == KIND_DOC2MD:
+            # doc2md projects always emit Markdown; ignore any stale Word/HTML/PDF format.
+            output_format = "md"
+        else:
+            output_format = str(data.get("output_format") or "docx")
         return cls(
             name=str(data.get("name") or root.name),
             root=root,
+            kind=kind,
             output_dir=str(data.get("output_dir") or "."),
-            output_format=str(data.get("output_format") or "docx"),
+            output_format=output_format,
             recursive=bool(data.get("recursive", True)),
             extra_pandoc_args=list(data.get("extra_pandoc_args") or []),
             toc=bool(data.get("toc", False)),
@@ -121,10 +143,20 @@ class ProjectConfig:
         )
 
 
-def create_project(root: Path | str, name: str | None = None) -> ProjectConfig:
+def create_project(
+    root: Path | str,
+    name: str | None = None,
+    kind: str = KIND_MD2DOC,
+) -> ProjectConfig:
     resolved = Path(root).expanduser().resolve()
     resolved.mkdir(parents=True, exist_ok=True)
-    config = ProjectConfig(name=name or resolved.name, root=resolved)
+    kind = normalize_kind(kind)
+    config = ProjectConfig(
+        name=name or resolved.name,
+        root=resolved,
+        kind=kind,
+        output_format=default_output_format(kind),
+    )
     config.save()
     ProjectRegistry().add(config)
     return config
@@ -137,6 +169,10 @@ def load_project(root: Path | str) -> ProjectConfig:
         return create_project(resolved)
     data = json.loads(config_file.read_text(encoding="utf-8"))
     config = ProjectConfig.from_dict(data)
+    # Clean up legacy configs on disk: persist a normalized copy when the stored
+    # data predates the project kind or carries a stale format for its kind.
+    if data.get("kind") != config.kind or data.get("output_format") != config.output_format:
+        config.save()
     ProjectRegistry().add(config)
     return config
 

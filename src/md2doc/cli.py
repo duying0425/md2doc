@@ -13,13 +13,15 @@ from .converter import (
     check_dependencies,
     plan_conversions,
     run_conversions,
-    scan_markdown_files,
+    scan_source_files,
     settings_from_project,
 )
-from .project import ProjectConfig, create_project, load_project
+from .project import KIND_DOC2MD, KIND_MD2DOC, VALID_KINDS, ProjectConfig, create_project, load_project
 
 
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
+OFFICE_SUFFIXES = {".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls"}
+SOURCE_SUFFIXES = MARKDOWN_SUFFIXES | OFFICE_SUFFIXES
 OUTPUT_FORMATS = ("docx", "html", "pdf")
 
 
@@ -30,7 +32,10 @@ class CliUsageError(ValueError):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="md2doc",
-        description="Convert Markdown files to DOCX, HTML, or PDF with Pandoc and mermaid-filter.",
+        description=(
+            "Convert Markdown to DOCX/HTML/PDF with Pandoc, or convert Word/PPT/Excel "
+            "to Markdown with MarkItDown."
+        ),
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command")
@@ -40,6 +45,12 @@ def main(argv: list[str] | None = None) -> int:
     init_parser = subparsers.add_parser("init", help="Create a project from a folder")
     init_parser.add_argument("folder")
     init_parser.add_argument("--name")
+    init_parser.add_argument(
+        "--kind",
+        choices=sorted(VALID_KINDS),
+        default=KIND_MD2DOC,
+        help="md2doc converts Markdown to documents; doc2md converts Word/PPT/Excel to Markdown.",
+    )
     init_parser.add_argument("--format", choices=OUTPUT_FORMATS, dest="output_format")
     init_parser.add_argument("--output-dir")
     init_parser.add_argument("--recursive", action=argparse.BooleanOptionalAction, default=None)
@@ -67,15 +78,15 @@ def main(argv: list[str] | None = None) -> int:
             run_app()
             return 0
         if args.command == "init":
-            config = create_project(args.folder, args.name)
-            if args.output_format:
+            config = create_project(args.folder, args.name, kind=args.kind)
+            if args.output_format and config.kind == KIND_MD2DOC:
                 config.output_format = args.output_format
             if args.output_dir:
                 config.output_dir = args.output_dir
             if args.recursive is not None:
                 config.recursive = args.recursive
             config.save()
-            print(f"Created project: {config.name}")
+            print(f"Created project: {config.name} ({config.kind})")
             print(config.root)
             return 0
         if args.command == "scan":
@@ -108,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
 def _add_conversion_arguments(parser: argparse.ArgumentParser, *, dry_run: bool) -> None:
     parser.add_argument(
         "target",
-        help="Project folder, or a single Markdown file to convert directly.",
+        help="Project folder, or a single Markdown/Office file to convert directly.",
     )
     parser.add_argument("files", nargs="*")
     parser.add_argument("--format", default=None, choices=OUTPUT_FORMATS)
@@ -146,8 +157,9 @@ def _add_conversion_arguments(parser: argparse.ArgumentParser, *, dry_run: bool)
 def _convert(args: argparse.Namespace) -> int:
     config, explicit_sources = _load_conversion_target(args.target, args.files)
     settings = _settings_from_args(config, args)
-    sources = explicit_sources or scan_markdown_files(
+    sources = explicit_sources or scan_source_files(
         config.root,
+        kind=settings.kind,
         recursive=settings.recursive,
         output_dir=settings.output_dir,
     )
@@ -171,9 +183,14 @@ def _scan(args: argparse.Namespace) -> int:
     config = load_project(args.folder)
     output_dir = Path(args.output_dir).expanduser().resolve() if args.output_dir else config.output_path
     recursive = config.recursive if args.recursive is None else args.recursive
-    sources = scan_markdown_files(config.root, recursive=recursive, output_dir=output_dir)
+    sources = scan_source_files(
+        config.root,
+        kind=config.kind,
+        recursive=recursive,
+        output_dir=output_dir,
+    )
     if not sources:
-        print("No Markdown files found.")
+        print(f"No {_input_label(config.kind)} files found.")
         return 0
     for source in sources:
         print(source.relative_to(config.root).as_posix())
@@ -182,29 +199,32 @@ def _scan(args: argparse.Namespace) -> int:
 
 def _load_conversion_target(target: str, files: list[str]) -> tuple[ProjectConfig, list[Path] | None]:
     target_path = Path(target).expanduser().resolve()
-    if _looks_like_markdown(target_path):
+    if _looks_like_source(target_path):
         if files:
-            raise CliUsageError("A Markdown file target cannot be combined with additional file arguments.")
+            raise CliUsageError("A single file target cannot be combined with additional file arguments.")
         if not target_path.exists():
-            raise CliUsageError(f"Markdown file not found: {target_path}")
+            raise CliUsageError(f"Input file not found: {target_path}")
         config = load_project(target_path.parent)
         return config, [target_path]
 
     config = load_project(target_path)
     if not files:
         return config, None
-    return config, _resolve_project_files(config.root, files)
+    return config, _resolve_project_files(config, files)
 
 
-def _resolve_project_files(project_root: Path, files: list[str]) -> list[Path]:
+def _resolve_project_files(config: ProjectConfig, files: list[str]) -> list[Path]:
+    project_root = config.root
+    accepted = OFFICE_SUFFIXES if config.kind == KIND_DOC2MD else MARKDOWN_SUFFIXES
+    label = _input_label(config.kind)
     sources: list[Path] = []
     for value in files:
         path = Path(value).expanduser()
         source = path.resolve() if path.is_absolute() else (project_root / path).resolve()
         if not source.exists():
-            raise CliUsageError(f"Markdown file not found: {source}")
-        if not _looks_like_markdown(source):
-            raise CliUsageError(f"Not a Markdown file: {source}")
+            raise CliUsageError(f"Input file not found: {source}")
+        if source.suffix.lower() not in accepted:
+            raise CliUsageError(f"Not a {label} file: {source}")
         try:
             source.relative_to(project_root)
         except ValueError as exc:
@@ -255,14 +275,18 @@ def _settings_from_args(config: ProjectConfig, args: argparse.Namespace) -> Conv
 
 def _print_plan(planned: list[PlanItem]) -> None:
     if not planned:
-        print("No Markdown files found.")
+        print("No input files found.")
         return
     for item in planned:
         print(f"{item.action:7} {item.relative_source} -> {item.output} ({item.reason})")
 
 
-def _looks_like_markdown(path: Path) -> bool:
-    return path.suffix.lower() in MARKDOWN_SUFFIXES
+def _looks_like_source(path: Path) -> bool:
+    return path.suffix.lower() in SOURCE_SUFFIXES
+
+
+def _input_label(kind: str) -> str:
+    return "Office" if kind == KIND_DOC2MD else "Markdown"
 
 
 if __name__ == "__main__":

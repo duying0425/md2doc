@@ -91,7 +91,7 @@ class CliTests(unittest.TestCase):
                 code = cli.main(["convert", str(Path(tmp) / "missing.md")])
 
             self.assertEqual(code, 2)
-            self.assertIn("Markdown file not found", stderr.getvalue())
+            self.assertIn("Input file not found", stderr.getvalue())
 
 
 if __name__ == "__main__":

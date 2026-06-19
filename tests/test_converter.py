@@ -15,16 +15,19 @@ from md2doc.converter import (
     ConvertSettings,
     _center_docx_images,
     _ensure_generated_reference_docx,
+    _markitdown_command,
     _mermaid_environment,
     _pandoc_command,
     _resolve_command,
+    check_dependencies,
     file_fingerprint,
     plan_conversions,
     run_conversions,
     scan_markdown_files,
+    scan_source_files,
     settings_from_project,
 )
-from md2doc.project import ProjectConfig
+from md2doc.project import KIND_DOC2MD, ProjectConfig
 
 
 class ConverterTests(unittest.TestCase):
@@ -335,6 +338,61 @@ class ConverterTests(unittest.TestCase):
 
             self.assertEqual([result.status for result in results], ["converted"])
             self.assertEqual(events, ["start:a.md", "converted:a.md"])
+
+class Doc2MdConverterTests(unittest.TestCase):
+    def test_scan_source_files_picks_office_documents_for_doc2md(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "report.docx").write_text("doc", encoding="utf-8")
+            (root / "deck.pptx").write_text("ppt", encoding="utf-8")
+            (root / "sheet.xlsx").write_text("xls", encoding="utf-8")
+            (root / "notes.md").write_text("# Notes", encoding="utf-8")
+
+            files = scan_source_files(root, kind=KIND_DOC2MD)
+
+            self.assertEqual(
+                [file.relative_to(root).as_posix() for file in files],
+                ["deck.pptx", "report.docx", "sheet.xlsx"],
+            )
+
+    def test_plan_emits_markdown_output_for_doc2md(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "report.docx"
+            source.write_text("doc", encoding="utf-8")
+
+            settings = ConvertSettings(kind=KIND_DOC2MD, output_dir=root)
+            item = plan_conversions(root, [source], settings)[0]
+
+            self.assertEqual(item.output, root / "report.md")
+
+    def test_markitdown_command_uses_output_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "report.docx"
+            source.write_text("doc", encoding="utf-8")
+            settings = ConvertSettings(kind=KIND_DOC2MD, output_dir=root, markitdown_cmd="markitdown")
+            item = plan_conversions(root, [source], settings)[0]
+
+            cmd = _markitdown_command(item, settings)
+
+            self.assertEqual(cmd[-3:], [str(item.source), "-o", str(item.output)])
+
+    def test_check_dependencies_uses_markitdown_for_doc2md(self) -> None:
+        checks = check_dependencies(ConvertSettings(kind=KIND_DOC2MD))
+
+        self.assertEqual([check.name for check in checks], ["MarkItDown"])
+
+    def test_settings_from_doc2md_project_round_trips_kind(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = ProjectConfig(name="Docs", root=Path(tmp), kind=KIND_DOC2MD, output_format="md")
+            loaded = ProjectConfig.from_dict(project.to_dict())
+
+            settings = settings_from_project(loaded)
+
+            self.assertEqual(settings.kind, KIND_DOC2MD)
+            self.assertEqual(settings.output_suffix(), ".md")
+
 
 def _minimal_reference_docx() -> bytes:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:

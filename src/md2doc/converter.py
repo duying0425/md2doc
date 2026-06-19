@@ -14,10 +14,14 @@ from typing import Callable, Iterable, Literal
 import xml.etree.ElementTree as ET
 import zipfile
 
-from .project import PROJECT_DIR_NAME, ProjectConfig
+from .project import KIND_DOC2MD, KIND_MD2DOC, PROJECT_DIR_NAME, ProjectConfig
 
 
 SUPPORTED_FORMATS = {"docx": ".docx", "html": ".html", "pdf": ".pdf"}
+MARKDOWN_SUFFIXES = {".md", ".markdown"}
+# Office documents that MarkItDown can turn into Markdown (Word/PowerPoint/Excel).
+OFFICE_SUFFIXES = {".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls"}
+DOC2MD_OUTPUT_SUFFIX = ".md"
 DEFAULT_EXCLUDED_DIRS = {
     ".git",
     ".hg",
@@ -49,11 +53,13 @@ class DependencyCheck:
 
 @dataclass(frozen=True)
 class ConvertSettings:
+    kind: str = KIND_MD2DOC
     output_format: str = "docx"
     output_dir: Path | None = None
     recursive: bool = True
     pandoc_cmd: str = "pandoc"
     mermaid_filter_cmd: str = "mermaid-filter"
+    markitdown_cmd: str = "markitdown"
     extra_pandoc_args: tuple[str, ...] = ()
     force: bool = False
     skip_unchanged: bool = True
@@ -74,11 +80,16 @@ class ConvertSettings:
     mermaid_background: str = "white"
 
     def output_suffix(self) -> str:
+        if self.kind == KIND_DOC2MD:
+            return DOC2MD_OUTPUT_SUFFIX
         try:
             return SUPPORTED_FORMATS[self.output_format]
         except KeyError as exc:
             supported = ", ".join(sorted(SUPPORTED_FORMATS))
             raise ValueError(f"Unsupported output format: {self.output_format}. Use: {supported}") from exc
+
+    def input_suffixes(self) -> set[str]:
+        return OFFICE_SUFFIXES if self.kind == KIND_DOC2MD else MARKDOWN_SUFFIXES
 
 
 @dataclass(frozen=True)
@@ -145,6 +156,7 @@ class BuildManifest:
 
 def settings_from_project(config: ProjectConfig, *, force: bool = False) -> ConvertSettings:
     return ConvertSettings(
+        kind=config.kind,
         output_format=config.output_format,
         output_dir=config.output_path,
         recursive=config.recursive,
@@ -169,6 +181,8 @@ def settings_from_project(config: ProjectConfig, *, force: bool = False) -> Conv
 
 
 def check_dependencies(settings: ConvertSettings) -> list[DependencyCheck]:
+    if settings.kind == KIND_DOC2MD:
+        return [_check_command("MarkItDown", settings.markitdown_cmd, allow_version_failure=True)]
     return [
         _check_command("Pandoc", settings.pandoc_cmd),
         _check_command("mermaid-filter", settings.mermaid_filter_cmd, allow_version_failure=True),
@@ -182,12 +196,51 @@ def missing_dependency_message(checks: Iterable[DependencyCheck]) -> str:
     lines = ["Missing required conversion tools:"]
     for check in missing:
         lines.append(f"- {check.name}: {check.detail}")
-    lines.append("Install Pandoc and then run: npm install -g mermaid-filter")
+    names = {check.name for check in missing}
+    if names & {"Pandoc", "mermaid-filter"}:
+        lines.append("Install Pandoc and then run: npm install -g mermaid-filter")
+    if "MarkItDown" in names:
+        lines.append("Install MarkItDown: pip install 'markitdown[docx,pptx,xlsx]'")
     return "\n".join(lines)
+
+
+def scan_source_files(
+    project_root: Path | str,
+    *,
+    kind: str = KIND_MD2DOC,
+    recursive: bool = True,
+    output_dir: Path | None = None,
+    excluded_dirs: set[str] | None = None,
+) -> list[Path]:
+    suffixes = OFFICE_SUFFIXES if kind == KIND_DOC2MD else MARKDOWN_SUFFIXES
+    return _scan_files(
+        project_root,
+        suffixes,
+        recursive=recursive,
+        output_dir=output_dir,
+        excluded_dirs=excluded_dirs,
+    )
 
 
 def scan_markdown_files(
     project_root: Path | str,
+    *,
+    recursive: bool = True,
+    output_dir: Path | None = None,
+    excluded_dirs: set[str] | None = None,
+) -> list[Path]:
+    return _scan_files(
+        project_root,
+        MARKDOWN_SUFFIXES,
+        recursive=recursive,
+        output_dir=output_dir,
+        excluded_dirs=excluded_dirs,
+    )
+
+
+def _scan_files(
+    project_root: Path | str,
+    suffixes: set[str],
     *,
     recursive: bool = True,
     output_dir: Path | None = None,
@@ -212,11 +265,11 @@ def scan_markdown_files(
             ]
             for filename in filenames:
                 path = current_path / filename
-                if _is_markdown(path):
+                if path.suffix.lower() in suffixes:
                     files.append(path)
     else:
         for path in root.iterdir():
-            if path.is_file() and _is_markdown(path):
+            if path.is_file() and path.suffix.lower() in suffixes:
                 files.append(path.resolve())
     return sorted(files, key=lambda path: path.relative_to(root).as_posix().lower())
 
@@ -312,9 +365,11 @@ def file_fingerprint(path: Path) -> FileFingerprint:
 
 def settings_signature(settings: ConvertSettings) -> str:
     payload = {
+        "kind": settings.kind,
         "output_format": settings.output_format,
         "pandoc_cmd": settings.pandoc_cmd,
         "mermaid_filter_cmd": settings.mermaid_filter_cmd,
+        "markitdown_cmd": settings.markitdown_cmd,
         "extra_pandoc_args": list(settings.extra_pandoc_args),
         "toc": settings.toc,
         "toc_depth": settings.toc_depth,
@@ -338,6 +393,8 @@ def settings_signature(settings: ConvertSettings) -> str:
 
 
 def _run_one(project_root: Path, item: PlanItem, settings: ConvertSettings) -> ConversionResult:
+    if settings.kind == KIND_DOC2MD:
+        return _run_markitdown(item, settings)
     item.output.parent.mkdir(parents=True, exist_ok=True)
     cmd = _pandoc_command(project_root, item, settings)
     env = os.environ.copy()
@@ -362,6 +419,43 @@ def _run_one(project_root: Path, item: PlanItem, settings: ConvertSettings) -> C
         message=message,
         returncode=completed.returncode,
     )
+
+
+def _run_markitdown(item: PlanItem, settings: ConvertSettings) -> ConversionResult:
+    item.output.parent.mkdir(parents=True, exist_ok=True)
+    cmd = _markitdown_command(item, settings)
+    completed = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if completed.returncode == 0 and item.output.exists():
+        return ConversionResult(item=item, status="converted", message="converted", returncode=0)
+
+    if completed.returncode == 0:
+        message = "MarkItDown produced no output"
+    else:
+        message = (completed.stderr or completed.stdout or "MarkItDown failed").strip()
+    return ConversionResult(
+        item=item,
+        status="failed",
+        message=message,
+        returncode=completed.returncode,
+    )
+
+
+def _markitdown_command(item: PlanItem, settings: ConvertSettings) -> list[str]:
+    markitdown_cmd = _resolve_command(settings.markitdown_cmd)
+    return [
+        markitdown_cmd[0],
+        *markitdown_cmd[1:],
+        str(item.source),
+        "-o",
+        str(item.output),
+    ]
 
 
 def _pandoc_command(project_root: Path, item: PlanItem, settings: ConvertSettings) -> list[str]:
@@ -418,6 +512,8 @@ def _mermaid_environment(settings: ConvertSettings) -> dict[str, str]:
 
 
 def _validate_settings(project_root: Path, settings: ConvertSettings) -> None:
+    if settings.kind == KIND_DOC2MD:
+        return
     if settings.reference_docx:
         reference_docx = _resolve_project_path(project_root, settings.reference_docx)
         if not reference_docx.exists():
@@ -848,10 +944,6 @@ def _decide_action(
     if record.get("settings_signature") != signature:
         return "convert", "conversion settings changed"
     return "skip", "unchanged"
-
-
-def _is_markdown(path: Path) -> bool:
-    return path.suffix.lower() in {".md", ".markdown"}
 
 
 def _is_same_or_child(path: Path, maybe_parent: Path | None) -> bool:

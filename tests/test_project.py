@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import tempfile
+import unittest
+
+from md2doc.project import (
+    KIND_DOC2MD,
+    KIND_MD2DOC,
+    PROJECT_CONFIG_NAME,
+    PROJECT_DIR_NAME,
+    ProjectConfig,
+    create_project,
+    load_project,
+)
+
+
+class ProjectKindTests(unittest.TestCase):
+    def test_legacy_config_without_kind_defaults_to_md2doc(self) -> None:
+        config = ProjectConfig.from_dict({"name": "Docs", "root": "/tmp/docs", "output_format": "docx"})
+
+        self.assertEqual(config.kind, KIND_MD2DOC)
+        self.assertEqual(config.output_format, "docx")
+
+    def test_doc2md_config_forces_markdown_output_format(self) -> None:
+        config = ProjectConfig.from_dict(
+            {"name": "Docs", "root": "/tmp/docs", "kind": KIND_DOC2MD, "output_format": "docx"}
+        )
+
+        self.assertEqual(config.kind, KIND_DOC2MD)
+        self.assertEqual(config.output_format, "md")
+
+    def test_unknown_kind_falls_back_to_md2doc(self) -> None:
+        config = ProjectConfig.from_dict({"name": "Docs", "root": "/tmp/docs", "kind": "bogus"})
+
+        self.assertEqual(config.kind, KIND_MD2DOC)
+
+    def test_create_doc2md_project_emits_markdown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = create_project(Path(tmp) / "proj", kind=KIND_DOC2MD)
+
+            self.assertEqual(config.kind, KIND_DOC2MD)
+            self.assertEqual(config.output_format, "md")
+
+    def test_load_project_cleans_legacy_config_on_disk(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            meta_dir = root / PROJECT_DIR_NAME
+            meta_dir.mkdir(parents=True)
+            config_path = meta_dir / PROJECT_CONFIG_NAME
+            config_path.write_text(
+                json.dumps({"name": "Legacy", "root": str(root), "output_format": "docx"}),
+                encoding="utf-8",
+            )
+
+            load_project(root)
+
+            cleaned = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(cleaned["kind"], KIND_MD2DOC)
+
+
+if __name__ == "__main__":
+    unittest.main()
