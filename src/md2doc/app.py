@@ -39,6 +39,7 @@ from .dependencies import ensure_startup_dependencies
 from .project import (
     KIND_DOC2MD,
     KIND_MD2DOC,
+    KIND_QMD2PPT,
     ProjectConfig,
     ProjectRegistry,
     app_data_dir,
@@ -313,6 +314,12 @@ class Md2DocApp(tk.Tk):
             variable=kind_var,
             value=KIND_DOC2MD,
         ).grid(row=2, column=0, sticky="w", pady=self._pad(2, 0))
+        ttk.Radiobutton(
+            frame,
+            text="Quarto Markdown (.qmd)  ->  PowerPoint (.pptx)   (Quarto)",
+            variable=kind_var,
+            value=KIND_QMD2PPT,
+        ).grid(row=3, column=0, sticky="w", pady=self._pad(2, 0))
 
         result: dict[str, str | None] = {"kind": None}
 
@@ -321,7 +328,7 @@ class Md2DocApp(tk.Tk):
             dialog.destroy()
 
         buttons = ttk.Frame(frame)
-        buttons.grid(row=3, column=0, sticky="e", pady=self._pad(16, 0))
+        buttons.grid(row=4, column=0, sticky="e", pady=self._pad(16, 0))
         ttk.Button(buttons, text="Cancel", command=dialog.destroy).grid(row=0, column=0, padx=self._pad(0, 8))
         ttk.Button(buttons, text="Continue", command=confirm).grid(row=0, column=1)
 
@@ -445,6 +452,10 @@ class Md2DocApp(tk.Tk):
             self.format_box.configure(values=("md",), state="disabled")
             self.format_var.set("md")
             self.tree.heading("file", text="Office document")
+        elif kind == KIND_QMD2PPT:
+            self.format_box.configure(values=("pptx",), state="disabled")
+            self.format_var.set("pptx")
+            self.tree.heading("file", text="Quarto Markdown")
         else:
             self.format_box.configure(values=("docx", "html", "pdf"), state="readonly")
             self.tree.heading("file", text="Markdown")
@@ -733,6 +744,14 @@ class Md2DocApp(tk.Tk):
                 "files are written.",
             )
             return
+        if project.kind == KIND_QMD2PPT:
+            messagebox.showinfo(
+                "Project Settings",
+                "Quarto Markdown to PowerPoint projects are configured via the YAML header "
+                "inside the .qmd files. Use the Output box to choose where the .pptx "
+                "files are written.",
+            )
+            return
         dialog = SettingsDialog(self, project)
         self.wait_window(dialog)
         if dialog.saved:
@@ -820,12 +839,22 @@ class Md2DocApp(tk.Tk):
             iid = self.iid_by_source.get(str(item.source), self._next_iid())
             self._insert_or_update_plan_item(iid, item)
             if item.action == "convert":
-                tool = "MarkItDown" if self.current_project and self.current_project.kind == KIND_DOC2MD else "Pandoc"
+                if self.current_project and self.current_project.kind == KIND_DOC2MD:
+                    tool = "MarkItDown"
+                elif self.current_project and self.current_project.kind == KIND_QMD2PPT:
+                    tool = "Quarto"
+                else:
+                    tool = "Pandoc"
                 self._set_item_state(item, _state_label("queued"), f"Waiting for {tool}", "queued")
 
     def _mark_item_running(self, project_root: Path, item: PlanItem) -> None:
         state = self._get_or_create_state(project_root)
-        tool = "MarkItDown" if state.kind == KIND_DOC2MD else "Pandoc"
+        if state.kind == KIND_DOC2MD:
+            tool = "MarkItDown"
+        elif state.kind == KIND_QMD2PPT:
+            tool = "Quarto"
+        else:
+            tool = "Pandoc"
         state_label = _state_label("running")
         reason = f"Running {tool}"
         tag = "running"
@@ -1328,11 +1357,19 @@ def _detect_ui_scale(root: tk.Tk) -> float:
 
 
 def _kind_label(kind: str) -> str:
-    return "Office to Markdown" if kind == KIND_DOC2MD else "Markdown to document"
+    if kind == KIND_DOC2MD:
+        return "Office to Markdown"
+    if kind == KIND_QMD2PPT:
+        return "Quarto to PowerPoint"
+    return "Markdown to document"
 
 
 def _input_label(kind: str) -> str:
-    return "Office" if kind == KIND_DOC2MD else "Markdown"
+    if kind == KIND_DOC2MD:
+        return "Office"
+    if kind == KIND_QMD2PPT:
+        return "Quarto"
+    return "Markdown"
 
 
 def _state_label(action: str) -> str:

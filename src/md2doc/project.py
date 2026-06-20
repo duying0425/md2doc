@@ -12,11 +12,16 @@ PROJECT_CONFIG_NAME = "project.json"
 
 KIND_MD2DOC = "md2doc"
 KIND_DOC2MD = "doc2md"
-VALID_KINDS = {KIND_MD2DOC, KIND_DOC2MD}
+KIND_QMD2PPT = "qmd2ppt"
+VALID_KINDS = {KIND_MD2DOC, KIND_DOC2MD, KIND_QMD2PPT}
 
 
 def default_output_format(kind: str) -> str:
-    return "md" if kind == KIND_DOC2MD else "docx"
+    if kind == KIND_DOC2MD:
+        return "md"
+    if kind == KIND_QMD2PPT:
+        return "pptx"
+    return "docx"
 
 
 def normalize_kind(value: object) -> str:
@@ -108,6 +113,8 @@ class ProjectConfig:
         if kind == KIND_DOC2MD:
             # doc2md projects always emit Markdown; ignore any stale Word/HTML/PDF format.
             output_format = "md"
+        elif kind == KIND_QMD2PPT:
+            output_format = "pptx"
         else:
             output_format = str(data.get("output_format") or "docx")
         return cls(

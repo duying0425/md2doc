@@ -15,10 +15,10 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from ._process import hidden_subprocess_kwargs
-from .project import KIND_DOC2MD, KIND_MD2DOC, PROJECT_DIR_NAME, ProjectConfig
+from .project import KIND_DOC2MD, KIND_MD2DOC, KIND_QMD2PPT, PROJECT_DIR_NAME, ProjectConfig
 
 
-SUPPORTED_FORMATS = {"docx": ".docx", "html": ".html", "pdf": ".pdf"}
+SUPPORTED_FORMATS = {"docx": ".docx", "html": ".html", "pdf": ".pdf", "pptx": ".pptx"}
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
 # Office documents that MarkItDown can turn into Markdown (Word/PowerPoint/Excel).
 OFFICE_SUFFIXES = {".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls"}
@@ -53,6 +53,19 @@ class DependencyCheck:
     detail: str
 
 
+
+
+PlanAction = Literal["convert", "skip"]
+
+
+@dataclass(frozen=True)
+class DependencyCheck:
+    name: str
+    command: str
+    available: bool
+    detail: str
+
+
 @dataclass(frozen=True)
 class ConvertSettings:
     kind: str = KIND_MD2DOC
@@ -62,6 +75,7 @@ class ConvertSettings:
     pandoc_cmd: str = "pandoc"
     mermaid_filter_cmd: str = "mermaid-filter"
     markitdown_cmd: str = "markitdown"
+    quarto_cmd: str = "quarto"
     extra_pandoc_args: tuple[str, ...] = ()
     force: bool = False
     skip_unchanged: bool = True
@@ -84,6 +98,8 @@ class ConvertSettings:
     def output_suffix(self) -> str:
         if self.kind == KIND_DOC2MD:
             return DOC2MD_OUTPUT_SUFFIX
+        if self.kind == KIND_QMD2PPT:
+            return ".pptx"
         try:
             return SUPPORTED_FORMATS[self.output_format]
         except KeyError as exc:
@@ -91,7 +107,11 @@ class ConvertSettings:
             raise ValueError(f"Unsupported output format: {self.output_format}. Use: {supported}") from exc
 
     def input_suffixes(self) -> set[str]:
-        return OFFICE_SUFFIXES if self.kind == KIND_DOC2MD else MARKDOWN_SUFFIXES
+        if self.kind == KIND_DOC2MD:
+            return OFFICE_SUFFIXES
+        if self.kind == KIND_QMD2PPT:
+            return {".qmd"}
+        return MARKDOWN_SUFFIXES
 
 
 @dataclass(frozen=True)
@@ -185,6 +205,8 @@ def settings_from_project(config: ProjectConfig, *, force: bool = False) -> Conv
 def check_dependencies(settings: ConvertSettings) -> list[DependencyCheck]:
     if settings.kind == KIND_DOC2MD:
         return [_check_markitdown(settings.markitdown_cmd)]
+    if settings.kind == KIND_QMD2PPT:
+        return [_check_command("Quarto", settings.quarto_cmd)]
     return [
         _check_command("Pandoc", settings.pandoc_cmd),
         _check_command("mermaid-filter", settings.mermaid_filter_cmd, allow_version_failure=True),
@@ -203,6 +225,8 @@ def missing_dependency_message(checks: Iterable[DependencyCheck]) -> str:
         lines.append("Install Pandoc and then run: npm install -g mermaid-filter")
     if "MarkItDown" in names:
         lines.append("Install MarkItDown: pip install 'markitdown[docx,pptx,xlsx]'")
+    if "Quarto" in names:
+        lines.append("Install Quarto: https://quarto.org/docs/get-started/")
     return "\n".join(lines)
 
 
@@ -214,7 +238,12 @@ def scan_source_files(
     output_dir: Path | None = None,
     excluded_dirs: set[str] | None = None,
 ) -> list[Path]:
-    suffixes = OFFICE_SUFFIXES if kind == KIND_DOC2MD else MARKDOWN_SUFFIXES
+    if kind == KIND_DOC2MD:
+        suffixes = OFFICE_SUFFIXES
+    elif kind == KIND_QMD2PPT:
+        suffixes = {".qmd"}
+    else:
+        suffixes = MARKDOWN_SUFFIXES
     return _scan_files(
         project_root,
         suffixes,
@@ -400,6 +429,7 @@ def settings_signature(settings: ConvertSettings) -> str:
         "pandoc_cmd": settings.pandoc_cmd,
         "mermaid_filter_cmd": settings.mermaid_filter_cmd,
         "markitdown_cmd": settings.markitdown_cmd,
+        "quarto_cmd": settings.quarto_cmd,
         "extra_pandoc_args": list(settings.extra_pandoc_args),
         "toc": settings.toc,
         "toc_depth": settings.toc_depth,
@@ -425,6 +455,8 @@ def settings_signature(settings: ConvertSettings) -> str:
 def _run_one(project_root: Path, item: PlanItem, settings: ConvertSettings) -> ConversionResult:
     if settings.kind == KIND_DOC2MD:
         return _run_markitdown(item, settings)
+    if settings.kind == KIND_QMD2PPT:
+        return _run_quarto(item, settings)
     item.output.parent.mkdir(parents=True, exist_ok=True)
     cmd = _pandoc_command(project_root, item, settings)
     env = os.environ.copy()
@@ -637,7 +669,7 @@ def _mermaid_environment(settings: ConvertSettings) -> dict[str, str]:
 
 
 def _validate_settings(project_root: Path, settings: ConvertSettings) -> None:
-    if settings.kind == KIND_DOC2MD:
+    if settings.kind in (KIND_DOC2MD, KIND_QMD2PPT):
         return
     if settings.reference_docx:
         reference_docx = _resolve_project_path(project_root, settings.reference_docx)
@@ -923,6 +955,8 @@ def _windows_tool_candidates(executable: str) -> list[Path]:
         return _windows_pandoc_candidates()
     if stem == "mermaid-filter":
         return _windows_mermaid_filter_candidates()
+    if stem == "quarto":
+        return _windows_quarto_candidates()
     return []
 
 
@@ -1086,3 +1120,79 @@ def _is_same_or_child(path: Path, maybe_parent: Path | None) -> bool:
         return True
     except ValueError:
         return path.resolve() == maybe_parent
+
+
+def _run_quarto(item: PlanItem, settings: ConvertSettings) -> ConversionResult:
+    item.output.parent.mkdir(parents=True, exist_ok=True)
+    import uuid
+    temp_filename = f"qmd2ppt_temp_{uuid.uuid4().hex}.pptx"
+    temp_path = item.source.parent / temp_filename
+    
+    quarto_cmd = _resolve_command(settings.quarto_cmd)
+    cmd = [
+        quarto_cmd[0],
+        *quarto_cmd[1:],
+        "render",
+        item.source.name,
+        "--to",
+        "pptx",
+        "-o",
+        temp_filename
+    ]
+    
+    completed = subprocess.run(
+        cmd,
+        cwd=item.source.parent,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        **hidden_subprocess_kwargs(),
+    )
+    
+    if completed.returncode == 0 and temp_path.exists():
+        try:
+            if item.output.exists():
+                item.output.unlink()
+            shutil.move(str(temp_path), str(item.output))
+            return ConversionResult(item=item, status="converted", message="converted", returncode=0)
+        except Exception as exc:
+            return ConversionResult(
+                item=item,
+                status="failed",
+                message=f"Failed to move output file: {exc}",
+                returncode=1,
+            )
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
+                
+    if temp_path.exists():
+        temp_path.unlink()
+        
+    message = (completed.stderr or completed.stdout or "Quarto failed").strip()
+    return ConversionResult(
+        item=item,
+        status="failed",
+        message=message,
+        returncode=completed.returncode or 1,
+    )
+
+
+def _windows_quarto_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    program_files = _env_path("ProgramFiles")
+    program_files_x86 = _env_path("ProgramFiles(x86)")
+    local_app_data = _env_path("LOCALAPPDATA")
+    
+    candidates.extend(
+        path
+        for path in [
+            program_files / "Quarto" / "bin" / "quarto.exe" if program_files else None,
+            program_files_x86 / "Quarto" / "bin" / "quarto.exe" if program_files_x86 else None,
+            local_app_data / "Programs" / "Quarto" / "bin" / "quarto.exe" if local_app_data else None,
+        ]
+        if path is not None
+    )
+    return _dedupe_paths(candidates)

@@ -17,12 +17,13 @@ from .converter import (
     scan_source_files,
     settings_from_project,
 )
-from .project import KIND_DOC2MD, KIND_MD2DOC, VALID_KINDS, ProjectConfig, create_project, load_project
+from .project import KIND_DOC2MD, KIND_MD2DOC, KIND_QMD2PPT, VALID_KINDS, ProjectConfig, create_project, load_project
 
 
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
 OFFICE_SUFFIXES = {".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls"}
-SOURCE_SUFFIXES = MARKDOWN_SUFFIXES | OFFICE_SUFFIXES
+QMD_SUFFIXES = {".qmd"}
+SOURCE_SUFFIXES = MARKDOWN_SUFFIXES | OFFICE_SUFFIXES | QMD_SUFFIXES
 OUTPUT_FORMATS = ("docx", "html", "pdf")
 
 
@@ -51,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         "--kind",
         choices=sorted(VALID_KINDS),
         default=KIND_MD2DOC,
-        help="md2doc converts Markdown to documents; doc2md converts Word/PPT/Excel to Markdown.",
+        help="md2doc converts Markdown to documents; doc2md converts Word/PPT/Excel to Markdown; qmd2ppt converts Quarto Markdown to PowerPoint.",
     )
     init_parser.add_argument("--format", choices=OUTPUT_FORMATS, dest="output_format")
     init_parser.add_argument("--output-dir")
@@ -224,7 +225,12 @@ def _load_conversion_target(target: str, files: list[str]) -> tuple[ProjectConfi
 
 def _resolve_project_files(config: ProjectConfig, files: list[str]) -> list[Path]:
     project_root = config.root
-    accepted = OFFICE_SUFFIXES if config.kind == KIND_DOC2MD else MARKDOWN_SUFFIXES
+    if config.kind == KIND_DOC2MD:
+        accepted = OFFICE_SUFFIXES
+    elif config.kind == KIND_QMD2PPT:
+        accepted = QMD_SUFFIXES
+    else:
+        accepted = MARKDOWN_SUFFIXES
     label = _input_label(config.kind)
     sources: list[Path] = []
     for value in files:
@@ -295,7 +301,11 @@ def _looks_like_source(path: Path) -> bool:
 
 
 def _input_label(kind: str) -> str:
-    return "Office" if kind == KIND_DOC2MD else "Markdown"
+    if kind == KIND_DOC2MD:
+        return "Office"
+    if kind == KIND_QMD2PPT:
+        return "Quarto"
+    return "Markdown"
 
 
 if __name__ == "__main__":

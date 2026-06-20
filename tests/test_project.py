@@ -8,6 +8,7 @@ import unittest
 from md2doc.project import (
     KIND_DOC2MD,
     KIND_MD2DOC,
+    KIND_QMD2PPT,
     PROJECT_CONFIG_NAME,
     PROJECT_DIR_NAME,
     ProjectConfig,
@@ -35,6 +36,14 @@ class ProjectKindTests(unittest.TestCase):
         config = ProjectConfig.from_dict({"name": "Docs", "root": "/tmp/docs", "kind": "bogus"})
 
         self.assertEqual(config.kind, KIND_MD2DOC)
+
+    def test_qmd2ppt_config_forces_pptx_output_format(self) -> None:
+        config = ProjectConfig.from_dict(
+            {"name": "Docs", "root": "/tmp/docs", "kind": KIND_QMD2PPT, "output_format": "docx"}
+        )
+
+        self.assertEqual(config.kind, KIND_QMD2PPT)
+        self.assertEqual(config.output_format, "pptx")
 
     def test_create_doc2md_project_emits_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

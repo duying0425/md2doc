@@ -27,7 +27,7 @@ from md2doc.converter import (
     scan_source_files,
     settings_from_project,
 )
-from md2doc.project import KIND_DOC2MD, ProjectConfig
+from md2doc.project import KIND_DOC2MD, KIND_QMD2PPT, ProjectConfig
 
 
 class ConverterTests(unittest.TestCase):
@@ -567,6 +567,37 @@ def _minimal_reference_docx() -> bytes:
     finally:
         if path.exists():
             path.unlink()
+
+
+class Qmd2PptConverterTests(unittest.TestCase):
+    def test_scan_source_files_picks_qmd_documents_for_qmd2ppt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "presentation.qmd").write_text("content", encoding="utf-8")
+            (root / "notes.md").write_text("# Notes", encoding="utf-8")
+
+            files = scan_source_files(root, kind=KIND_QMD2PPT)
+
+            self.assertEqual(
+                [file.relative_to(root).as_posix() for file in files],
+                ["presentation.qmd"],
+            )
+
+    def test_plan_emits_pptx_output_for_qmd2ppt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "presentation.qmd"
+            source.write_text("content", encoding="utf-8")
+
+            settings = ConvertSettings(kind=KIND_QMD2PPT, output_dir=root)
+            item = plan_conversions(root, [source], settings)[0]
+
+            self.assertEqual(item.output, root / "presentation.pptx")
+
+    def test_check_dependencies_uses_quarto_for_qmd2ppt(self) -> None:
+        checks = check_dependencies(ConvertSettings(kind=KIND_QMD2PPT))
+
+        self.assertEqual([check.name for check in checks], ["Quarto"])
 
 
 if __name__ == "__main__":
