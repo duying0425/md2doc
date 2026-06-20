@@ -622,7 +622,7 @@ class Md2DocApp(tk.Tk):
             messagebox.showinfo("Convert selected", "Select one or more files first.")
             return
         planned = [self.plan_by_id[iid] for iid in selection]
-        self._start_conversion([item.source for item in planned], planned)
+        self._start_conversion([item.source for item in planned])
 
     def _convert_all(self) -> None:
         project = self.current_project
@@ -635,21 +635,22 @@ class Md2DocApp(tk.Tk):
         if not planned:
             messagebox.showinfo("Convert all", "Scan this project before converting.")
             return
-        self._start_conversion([item.source for item in planned], planned)
+        self._start_conversion([item.source for item in planned])
 
-    def _start_conversion(self, sources: list[Path], planned: list[PlanItem] | None = None) -> None:
+    def _start_conversion(self, sources: list[Path]) -> None:
         project = self._require_project()
         settings = self._settings()
         if self.worker and self.worker.is_alive():
             messagebox.showinfo("Busy", "A conversion is already running.")
             return
-        if planned is None:
-            planned = plan_conversions(
-                project.root,
-                sources,
-                settings,
-                use_cached_fingerprints=True,
-            )
+        # Always re-plan using the current settings, so that changed settings
+        # (like format, output directory, or force option) are respected.
+        planned = plan_conversions(
+            project.root,
+            sources,
+            settings,
+            use_cached_fingerprints=True,
+        )
         self._prepare_conversion_progress(planned)
         queued = [item for item in planned if item.action == "convert"]
         skipped = [item for item in planned if item.action == "skip"]
