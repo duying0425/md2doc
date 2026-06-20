@@ -339,6 +339,83 @@ class ConverterTests(unittest.TestCase):
             self.assertEqual([result.status for result in results], ["converted"])
             self.assertEqual(events, ["start:a.md", "converted:a.md"])
 
+    def test_run_conversions_removes_empty_mermaid_filter_error_log_on_success(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "a.md"
+            output_dir = root / "output"
+            fake_pandoc = root / "fake_pandoc.py"
+            source.write_text("# A", encoding="utf-8")
+            fake_pandoc.write_text(
+                "\n".join(
+                    [
+                        "from pathlib import Path",
+                        "import sys",
+                        "import zipfile",
+                        "if '--version' in sys.argv:",
+                        "    print('fake pandoc 1.0')",
+                        "    raise SystemExit(0)",
+                        "Path('mermaid-filter.err').write_text('', encoding='utf-8')",
+                        "output = Path(sys.argv[sys.argv.index('-o') + 1])",
+                        "output.parent.mkdir(parents=True, exist_ok=True)",
+                        "with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as docx:",
+                        "    docx.writestr('word/document.xml', '<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body/></w:document>')",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            results = run_conversions(
+                root,
+                [source],
+                ConvertSettings(
+                    output_dir=output_dir,
+                    pandoc_cmd=f"python {fake_pandoc}",
+                    mermaid_filter_cmd="python",
+                ),
+            )
+
+            self.assertEqual([result.status for result in results], ["converted"])
+            self.assertFalse((root / "mermaid-filter.err").exists())
+
+    def test_run_conversions_keeps_nonempty_mermaid_filter_error_log_on_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "a.md"
+            output_dir = root / "output"
+            fake_pandoc = root / "fake_pandoc.py"
+            source.write_text("# A", encoding="utf-8")
+            fake_pandoc.write_text(
+                "\n".join(
+                    [
+                        "from pathlib import Path",
+                        "import sys",
+                        "if '--version' in sys.argv:",
+                        "    print('fake pandoc 1.0')",
+                        "    raise SystemExit(0)",
+                        "Path('mermaid-filter.err').write_text('render failed\\n', encoding='utf-8')",
+                        "raise SystemExit(2)",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            results = run_conversions(
+                root,
+                [source],
+                ConvertSettings(
+                    output_dir=output_dir,
+                    pandoc_cmd=f"python {fake_pandoc}",
+                    mermaid_filter_cmd="python",
+                ),
+            )
+
+            err_path = root / "mermaid-filter.err"
+            self.assertEqual([result.status for result in results], ["failed"])
+            self.assertTrue(err_path.exists())
+            self.assertEqual(err_path.read_text(encoding="utf-8"), "render failed\n")
+            self.assertIn("mermaid-filter.err:\nrender failed", results[0].message)
+
 class Doc2MdConverterTests(unittest.TestCase):
     def test_scan_source_files_picks_office_documents_for_doc2md(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

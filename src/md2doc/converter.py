@@ -35,6 +35,7 @@ DEFAULT_EXCLUDED_DIRS = {
 MANIFEST_NAME = "manifest.json"
 GENERATED_REFERENCE_DOCX = "generated-reference.docx"
 GENERATED_REFERENCE_META = "generated-reference.json"
+MERMAID_FILTER_ERR_NAME = "mermaid-filter.err"
 WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 W = f"{{{WORD_NS}}}"
 ET.register_namespace("w", WORD_NS)
@@ -399,6 +400,7 @@ def _run_one(project_root: Path, item: PlanItem, settings: ConvertSettings) -> C
     cmd = _pandoc_command(project_root, item, settings)
     env = os.environ.copy()
     env.update(_mermaid_environment(settings))
+    mermaid_error_path = _reset_mermaid_filter_error_log(item.source.parent)
     completed = subprocess.run(
         cmd,
         cwd=item.source.parent,
@@ -407,12 +409,14 @@ def _run_one(project_root: Path, item: PlanItem, settings: ConvertSettings) -> C
         check=False,
         env=env,
     )
+    mermaid_error = _mermaid_filter_error_text(mermaid_error_path)
     if completed.returncode == 0:
+        _remove_file(mermaid_error_path)
         if settings.output_format == "docx":
             _center_docx_images(item.output)
         return ConversionResult(item=item, status="converted", message="converted", returncode=0)
 
-    message = (completed.stderr or completed.stdout or "Pandoc failed").strip()
+    message = _pandoc_failure_message(completed, mermaid_error)
     return ConversionResult(
         item=item,
         status="failed",
@@ -445,6 +449,47 @@ def _run_markitdown(item: PlanItem, settings: ConvertSettings) -> ConversionResu
         message=message,
         returncode=completed.returncode,
     )
+
+
+def _reset_mermaid_filter_error_log(source_dir: Path) -> Path:
+    err_path = source_dir / MERMAID_FILTER_ERR_NAME
+    _remove_file(err_path)
+    return err_path
+
+
+def _mermaid_filter_error_text(err_path: Path) -> str:
+    if not err_path.exists():
+        return ""
+    try:
+        content = err_path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return ""
+    if not content:
+        _remove_file(err_path)
+        return ""
+    return content
+
+
+def _pandoc_failure_message(completed: subprocess.CompletedProcess[str], mermaid_error: str) -> str:
+    parts = [
+        text
+        for text in (
+            (completed.stderr or "").strip(),
+            (completed.stdout or "").strip(),
+            f"{MERMAID_FILTER_ERR_NAME}:\n{mermaid_error}" if mermaid_error else "",
+        )
+        if text
+    ]
+    return "\n\n".join(parts) or "Pandoc failed"
+
+
+def _remove_file(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
 
 
 def _markitdown_command(item: PlanItem, settings: ConvertSettings) -> list[str]:
