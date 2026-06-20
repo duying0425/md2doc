@@ -50,6 +50,25 @@ from .project import (
 SCAN_TABLE_BATCH_SIZE = 250
 
 
+class ProjectState:
+    def __init__(self) -> None:
+        self.plan_by_id: dict[str, PlanItem] = {}
+        self.iid_by_source: dict[str, str] = {}
+        self.item_states: dict[str, tuple[str, str, str]] = {}  # source_path -> (state, reason, tag)
+        self.log_content: str = ""
+        self.conversion_total: int = 0
+        self.conversion_done: int = 0
+        self.converted_count: int = 0
+        self.skipped_count: int = 0
+        self.failed_count: int = 0
+        self.progress_value: float = 0.0
+        self.status_text: str = "Ready"
+        self.scan_active: bool = False
+        self.scan_generation: int = 0
+        self.scan_worker: threading.Thread | None = None
+        self.kind: str = ""
+
+
 class Md2DocApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -61,6 +80,7 @@ class Md2DocApp(tk.Tk):
 
         self.registry = ProjectRegistry()
         self.current_project: ProjectConfig | None = None
+        self.project_states: dict[str, ProjectState] = {}
         self.plan_by_id: dict[str, PlanItem] = {}
         self.iid_by_source: dict[str, str] = {}
         self.event_queue: queue.Queue[object] = queue.Queue()
@@ -332,7 +352,80 @@ class Md2DocApp(tk.Tk):
             return
         self._set_project(self.projects[selection[0]])
 
+    def _get_or_create_state(self, root: Path) -> ProjectState:
+        key = str(root.resolve())
+        if key not in self.project_states:
+            self.project_states[key] = ProjectState()
+        return self.project_states[key]
+
+    def _save_project_state(self, root: Path) -> None:
+        state = self._get_or_create_state(root)
+        state.plan_by_id = self.plan_by_id
+        state.iid_by_source = self.iid_by_source
+        state.log_content = self.log.get("1.0", tk.END).rstrip("\n")
+        state.conversion_total = self.conversion_total
+        state.conversion_done = self.conversion_done
+        state.converted_count = self.converted_count
+        state.skipped_count = self.skipped_count
+        state.failed_count = self.failed_count
+        state.progress_value = self.progress_var.get()
+        state.status_text = self.status_var.get()
+        state.scan_active = self.scan_active
+        state.scan_generation = self.scan_generation
+        state.scan_worker = self.scan_worker
+        if self.current_project:
+            state.kind = self.current_project.kind
+
+    def _load_project_state(self, root: Path) -> None:
+        key = str(root.resolve())
+        is_new = key not in self.project_states
+        state = self._get_or_create_state(root)
+
+        self.plan_by_id = state.plan_by_id
+        self.iid_by_source = state.iid_by_source
+        self.conversion_total = state.conversion_total
+        self.conversion_done = state.conversion_done
+        self.converted_count = state.converted_count
+        self.skipped_count = state.skipped_count
+        self.failed_count = state.failed_count
+        self.scan_generation = state.scan_generation
+        self.scan_active = state.scan_active
+        self.scan_worker = state.scan_worker
+
+        self.log.configure(state="normal")
+        self.log.delete("1.0", tk.END)
+        if state.log_content:
+            self.log.insert(tk.END, state.log_content + "\n")
+            self.log.see(tk.END)
+        self.log.configure(state="disabled")
+
+        self.progress_var.set(state.progress_value)
+        self.progress_bar.configure(maximum=max(state.conversion_total, 1))
+        self.status_var.set(state.status_text)
+
+        for iid in self.tree.get_children():
+            self.tree.delete(iid)
+
+        for iid, item in state.plan_by_id.items():
+            item_state = state.item_states.get(str(item.source))
+            if item_state:
+                val_state, val_reason, tag = item_state
+            else:
+                tag = "convert" if item.action == "convert" else "skip"
+                val_state = _state_label(item.action)
+                val_reason = _reason_label(item.reason)
+            values = (val_state, item.relative_source, val_reason)
+            self.tree.insert("", tk.END, iid=iid, values=values, tags=(tag,))
+
+        self._refresh_busy_state()
+
+        if is_new:
+            self._scan()
+
     def _set_project(self, project: ProjectConfig) -> None:
+        if self.current_project:
+            self._save_project_state(self.current_project.root)
+
         self.current_project = load_project(project.root)
         if self.current_project.output_dir == "output":
             self.current_project.output_dir = "."
@@ -345,8 +438,7 @@ class Md2DocApp(tk.Tk):
         self._apply_kind_to_ui(self.current_project.kind)
         self.format_var.set(self.current_project.output_format)
         self.output_var.set(self.current_project.output_dir)
-        self._clear_table()
-        self._scan()
+        self._load_project_state(self.current_project.root)
 
     def _apply_kind_to_ui(self, kind: str) -> None:
         if kind == KIND_DOC2MD:
@@ -380,15 +472,22 @@ class Md2DocApp(tk.Tk):
             messagebox.showerror("Scan failed", str(exc))
             return
 
-        self.scan_generation += 1
-        generation = self.scan_generation
+        state = self._get_or_create_state(project.root)
+        state.scan_generation += 1
+        generation = state.scan_generation
+        self.scan_generation = generation
         project_root = project.root
         project_name = project.name
         project_kind = project.kind
+        state.scan_active = True
         self.scan_active = True
         self._clear_table()
-        self.status_var.set("Scanning in background; estimates are not final")
-        self._append_log(f"Scanning {project_name} in background. Estimates will update when scanning finishes.")
+        state.status_text = "Scanning in background; estimates are not final"
+        self.status_var.set(state.status_text)
+        log_msg = f"Scanning {project_name} in background. Estimates will update when scanning finishes."
+        state.log_content += log_msg + "\n"
+        self._append_log(log_msg)
+        state.progress_value = 0.0
         self.progress_var.set(0)
         self.progress_bar.configure(mode="determinate", maximum=1)
         self._refresh_busy_state()
@@ -407,33 +506,59 @@ class Md2DocApp(tk.Tk):
                     settings,
                     use_cached_fingerprints=True,
                 )
-                self.event_queue.put(("scan_done", generation, project_kind, planned))
+                self.event_queue.put(("scan_done", project_root, generation, project_kind, planned))
             except Exception as exc:
-                self.event_queue.put(("scan_error", generation, str(exc)))
+                self.event_queue.put(("scan_error", project_root, generation, str(exc)))
 
         self.scan_worker = threading.Thread(target=work, daemon=True)
+        state.scan_worker = self.scan_worker
         self.scan_worker.start()
 
-    def _handle_scan_done(self, generation: int, project_kind: str, planned: list[PlanItem]) -> None:
-        if generation != self.scan_generation:
+    def _handle_scan_done(self, project_root: Path, generation: int, project_kind: str, planned: list[PlanItem]) -> None:
+        state = self._get_or_create_state(project_root)
+        if generation != state.scan_generation:
             return
-        self.scan_worker = None
-        self._clear_table()
+        state.scan_worker = None
+
+        state.plan_by_id.clear()
+        state.iid_by_source.clear()
+        state.item_states.clear()
+        for index, item in enumerate(planned):
+            iid = str(index)
+            state.plan_by_id[iid] = item
+            state.iid_by_source[str(item.source)] = iid
+            tag = "convert" if item.action == "convert" else "skip"
+            state.item_states[str(item.source)] = (_state_label(item.action), _reason_label(item.reason), tag)
+
         convert_count = sum(1 for item in planned if item.action == "convert")
         skip_count = len(planned) - convert_count
-        self.progress_bar.configure(mode="determinate", maximum=max(len(planned), 1))
-        self.progress_var.set(0)
-        self._insert_scan_batch(
-            generation,
-            planned,
-            0,
-            convert_count,
-            skip_count,
-            project_kind,
-        )
+
+        status_text = f"Scanned {len(planned)} file(s): {convert_count} to convert, {skip_count} skipped"
+        log_msg = f"Scanned {len(planned)} {_input_label(project_kind)} file(s)."
+        state.status_text = status_text
+        state.log_content += log_msg + "\n"
+        state.scan_active = False
+
+        if self.current_project and self.current_project.root.resolve() == project_root.resolve():
+            self.scan_active = False
+            self.status_var.set(status_text)
+            self._append_log(log_msg)
+            self.progress_bar.configure(mode="determinate", maximum=max(len(planned), 1))
+            self.progress_var.set(0)
+            self._clear_table()
+            self._insert_scan_batch(
+                project_root,
+                generation,
+                planned,
+                0,
+                convert_count,
+                skip_count,
+                project_kind,
+            )
 
     def _insert_scan_batch(
         self,
+        project_root: Path,
         generation: int,
         planned: list[PlanItem],
         start: int,
@@ -441,8 +566,12 @@ class Md2DocApp(tk.Tk):
         skip_count: int,
         project_kind: str,
     ) -> None:
-        if generation != self.scan_generation:
+        if not self.current_project or self.current_project.root.resolve() != project_root.resolve():
             return
+        state = self._get_or_create_state(project_root)
+        if generation != state.scan_generation:
+            return
+
         end = min(start + SCAN_TABLE_BATCH_SIZE, len(planned))
         for index in range(start, end):
             self._insert_or_update_plan_item(str(index), planned[index])
@@ -452,6 +581,7 @@ class Md2DocApp(tk.Tk):
             self.after(
                 1,
                 lambda: self._insert_scan_batch(
+                    project_root,
                     generation,
                     planned,
                     end,
@@ -463,21 +593,25 @@ class Md2DocApp(tk.Tk):
             return
 
         self.status_var.set(f"Scanned {len(planned)} file(s): {convert_count} to convert, {skip_count} skipped")
-        self._append_log(f"Scanned {len(planned)} {_input_label(project_kind)} file(s).")
-        self.scan_active = False
         self._refresh_busy_state()
 
-    def _handle_scan_error(self, generation: int, message: str) -> None:
-        if generation != self.scan_generation:
+    def _handle_scan_error(self, project_root: Path, generation: int, message: str) -> None:
+        state = self._get_or_create_state(project_root)
+        if generation != state.scan_generation:
             return
-        self.scan_worker = None
-        self.progress_bar.configure(mode="determinate", maximum=1)
-        self.progress_var.set(0)
-        self.status_var.set("Scan failed")
-        self.scan_active = False
-        self._refresh_busy_state()
-        self._append_log(message)
-        messagebox.showerror("Scan failed", message)
+        state.scan_worker = None
+        state.scan_active = False
+        state.status_text = "Scan failed"
+        state.log_content += message + "\n"
+
+        if self.current_project and self.current_project.root.resolve() == project_root.resolve():
+            self.scan_active = False
+            self.progress_bar.configure(mode="determinate", maximum=1)
+            self.progress_var.set(0)
+            self.status_var.set("Scan failed")
+            self._refresh_busy_state()
+            self._append_log(message)
+            messagebox.showerror("Scan failed", message)
 
     def _convert_selected(self) -> None:
         if self.scan_active:
@@ -521,14 +655,19 @@ class Md2DocApp(tk.Tk):
         skipped = [item for item in planned if item.action == "skip"]
         self._record_already_skipped(skipped)
         if not queued:
-            self.status_var.set(
+            status_text = (
                 f"Finished: {self.converted_count} converted, "
                 f"{self.skipped_count} skipped, {self.failed_count} failed"
             )
-            self._append_log(
+            log_msg = (
                 f"Finished: {self.converted_count} converted, "
                 f"{self.skipped_count} skipped, {self.failed_count} failed."
             )
+            self.status_var.set(status_text)
+            self._append_log(log_msg)
+            state = self._get_or_create_state(project.root)
+            state.status_text = status_text
+            state.log_content += log_msg + "\n"
             self._refresh_busy_state()
             return
         queued_sources = [item.source for item in queued]
@@ -539,17 +678,21 @@ class Md2DocApp(tk.Tk):
                     project.root,
                     queued_sources,
                     settings,
-                    on_event=self.event_queue.put,
-                    on_start=lambda item: self.event_queue.put(("start", item)),
+                    on_event=lambda res: self.event_queue.put(("result", project.root, res)),
+                    on_start=lambda item: self.event_queue.put(("start", project.root, item)),
                 )
                 converted = sum(1 for result in results if result.status == "converted")
                 skipped = sum(1 for result in results if result.status == "skipped")
                 failed = sum(1 for result in results if result.status == "failed")
-                self.event_queue.put(("done", converted, skipped, failed))
+                self.event_queue.put(("done", project.root, converted, skipped, failed))
             except Exception as exc:
-                self.event_queue.put(("error", str(exc)))
+                self.event_queue.put(("error", project.root, str(exc)))
 
-        self._append_log(f"Starting conversion for {len(queued_sources)} file(s).")
+        log_msg = f"Starting conversion for {len(queued_sources)} file(s)."
+        self._append_log(log_msg)
+        state = self._get_or_create_state(project.root)
+        state.log_content += log_msg + "\n"
+        
         self.worker = threading.Thread(target=work, daemon=True)
         self._set_busy(True)
         self.worker.start()
@@ -618,40 +761,28 @@ class Md2DocApp(tk.Tk):
             if isinstance(event, tuple):
                 kind = event[0]
                 if kind == "scan_done":
-                    self._handle_scan_done(event[1], event[2], event[3])
+                    self._handle_scan_done(event[1], event[2], event[3], event[4])
                     continue
                 if kind == "scan_error":
-                    self._handle_scan_error(event[1], str(event[2]))
+                    self._handle_scan_error(event[1], event[2], str(event[3]))
                     continue
                 if kind == "start":
-                    self._mark_item_running(event[1])
+                    self._mark_item_running(event[1], event[2])
                     continue
-                if kind == "error":
-                    message = str(event[1])
-                    self._append_log(message)
-                    self.status_var.set("Conversion failed")
-                    self.worker = None
-                    self._refresh_busy_state()
-                    messagebox.showerror("Conversion failed", message)
+                if kind == "result":
+                    self._handle_conversion_result(event[1], event[2])
                     continue
                 if kind == "done":
-                    self.status_var.set(
-                        f"Finished: {self.converted_count} converted, "
-                        f"{self.skipped_count} skipped, {self.failed_count} failed"
-                    )
-                    self._append_log(
-                        f"Finished: {self.converted_count} converted, "
-                        f"{self.skipped_count} skipped, {self.failed_count} failed."
-                    )
-                    self.worker = None
-                    self._refresh_busy_state()
-            else:
-                self._handle_conversion_result(event)
+                    self._handle_done_event(event[1], event[2], event[3], event[4])
+                    continue
+                if kind == "error":
+                    self._handle_error_event(event[1], str(event[2]))
+                    continue
         self.after(150, self._poll_events)
 
     def _clear_table(self) -> None:
-        self.plan_by_id.clear()
-        self.iid_by_source.clear()
+        self.plan_by_id = {}
+        self.iid_by_source = {}
         for iid in self.tree.get_children():
             self.tree.delete(iid)
 
@@ -664,6 +795,10 @@ class Md2DocApp(tk.Tk):
             item.relative_source,
             _reason_label(item.reason),
         )
+        if self.current_project:
+            state = self._get_or_create_state(self.current_project.root)
+            state.item_states[str(item.source)] = (values[0], values[2], tag)
+
         if self.tree.exists(iid):
             self.tree.item(iid, values=values, tags=(tag,))
         else:
@@ -685,34 +820,113 @@ class Md2DocApp(tk.Tk):
                 tool = "MarkItDown" if self.current_project and self.current_project.kind == KIND_DOC2MD else "Pandoc"
                 self._set_item_state(item, _state_label("queued"), f"Waiting for {tool}", "queued")
 
-    def _mark_item_running(self, item: PlanItem) -> None:
-        tool = "MarkItDown" if self.current_project and self.current_project.kind == KIND_DOC2MD else "Pandoc"
-        self._set_item_state(item, _state_label("running"), f"Running {tool}", "running")
-        self.status_var.set(f"Converting {item.relative_source} ({self.conversion_done}/{self.conversion_total})")
+    def _mark_item_running(self, project_root: Path, item: PlanItem) -> None:
+        state = self._get_or_create_state(project_root)
+        tool = "MarkItDown" if state.kind == KIND_DOC2MD else "Pandoc"
+        state_label = _state_label("running")
+        reason = f"Running {tool}"
+        tag = "running"
 
-    def _handle_conversion_result(self, result: ConversionResult) -> None:
-        self.conversion_done += 1
-        self.progress_var.set(self.conversion_done)
+        state.item_states[str(item.source)] = (state_label, reason, tag)
+        state.status_text = f"Converting {item.relative_source} ({state.conversion_done}/{state.conversion_total})"
+
+        if self.current_project and self.current_project.root.resolve() == project_root.resolve():
+            self._set_item_state(item, state_label, reason, tag)
+            self.status_var.set(state.status_text)
+
+    def _handle_conversion_result(self, project_root: Path, result: ConversionResult) -> None:
+        state = self._get_or_create_state(project_root)
+        state.conversion_done += 1
+
         if result.status == "converted":
-            self.converted_count += 1
-            self._set_item_state(result.item, _state_label("done"), "Output generated", "done")
+            state.converted_count += 1
+            state_val = _state_label("done")
+            reason_val = "Output generated"
+            tag_val = "done"
         elif result.status == "skipped":
-            self.skipped_count += 1
-            self._set_item_state(result.item, _state_label("skipped"), _reason_label(result.message), "skip")
+            state.skipped_count += 1
+            state_val = _state_label("skipped")
+            reason_val = _reason_label(result.message)
+            tag_val = "skip"
         else:
-            self.failed_count += 1
-            self._set_item_state(result.item, _state_label("failed"), result.message, "failed")
-        self.status_var.set(
-            f"Progress {self.conversion_done}/{self.conversion_total}: "
-            f"{self.converted_count} converted, {self.skipped_count} skipped, {self.failed_count} failed"
+            state.failed_count += 1
+            state_val = _state_label("failed")
+            reason_val = result.message
+            tag_val = "failed"
+
+        state.item_states[str(result.item.source)] = (state_val, reason_val, tag_val)
+
+        iid = state.iid_by_source.get(str(result.item.source))
+        if iid is None:
+            index = len(state.plan_by_id)
+            while str(index) in state.plan_by_id:
+                index += 1
+            iid = str(index)
+            state.plan_by_id[iid] = result.item
+            state.iid_by_source[str(result.item.source)] = iid
+
+        status_text = (
+            f"Progress {state.conversion_done}/{state.conversion_total}: "
+            f"{state.converted_count} converted, {state.skipped_count} skipped, {state.failed_count} failed"
         )
-        self._append_log(f"{result.status}: {result.item.relative_source} - {result.message}")
+        log_msg = f"{result.status}: {result.item.relative_source} - {result.message}"
+        state.status_text = status_text
+        state.log_content += log_msg + "\n"
+
+        if self.current_project and self.current_project.root.resolve() == project_root.resolve():
+            self.conversion_done = state.conversion_done
+            self.converted_count = state.converted_count
+            self.skipped_count = state.skipped_count
+            self.failed_count = state.failed_count
+
+            self.progress_var.set(self.conversion_done)
+            self._set_item_state(result.item, state_val, reason_val, tag_val)
+            self.status_var.set(status_text)
+            self._append_log(log_msg)
+
+    def _handle_done_event(self, project_root: Path, converted: int, skipped: int, failed: int) -> None:
+        state = self._get_or_create_state(project_root)
+        status_text = (
+            f"Finished: {state.converted_count} converted, "
+            f"{state.skipped_count} skipped, {state.failed_count} failed"
+        )
+        log_msg = (
+            f"Finished: {state.converted_count} converted, "
+            f"{state.skipped_count} skipped, {state.failed_count} failed."
+        )
+        state.status_text = status_text
+        state.log_content += log_msg + "\n"
+
+        self.worker = None
+        self._refresh_busy_state()
+
+        if self.current_project and self.current_project.root.resolve() == project_root.resolve():
+            self.status_var.set(status_text)
+            self._append_log(log_msg)
+
+    def _handle_error_event(self, project_root: Path, message: str) -> None:
+        state = self._get_or_create_state(project_root)
+        state.status_text = "Conversion failed"
+        state.log_content += message + "\n"
+
+        self.worker = None
+        self._refresh_busy_state()
+
+        if self.current_project and self.current_project.root.resolve() == project_root.resolve():
+            self.status_var.set("Conversion failed")
+            self._append_log(message)
+            messagebox.showerror("Conversion failed", message)
 
     def _set_item_state(self, item: PlanItem, state: str, reason: str, tag: str) -> None:
         iid = self.iid_by_source.get(str(item.source))
         if iid is None or not self.tree.exists(iid):
             iid = self._next_iid()
             self._insert_or_update_plan_item(iid, item)
+
+        if self.current_project:
+            p_state = self._get_or_create_state(self.current_project.root)
+            p_state.item_states[str(item.source)] = (state, reason, tag)
+
         self.tree.item(
             iid,
             values=(state, item.relative_source, reason),
