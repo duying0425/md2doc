@@ -122,8 +122,19 @@ def main(argv: list[str] | None = None) -> int:
 def _ensure_standard_streams() -> None:
     if sys.stdout is None:
         sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    elif hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(errors="replace")
+        except Exception:
+            pass
+
     if sys.stderr is None:
         sys.stderr = open(os.devnull, "w", encoding="utf-8")
+    elif hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(errors="replace")
+        except Exception:
+            pass
 
 
 def _add_conversion_arguments(parser: argparse.ArgumentParser, *, dry_run: bool) -> None:

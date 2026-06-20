@@ -317,7 +317,7 @@ def plan_conversions(
     manifest = manifest or BuildManifest.load(root)
     output_dir = (settings.output_dir or root).expanduser().resolve()
     output_suffix = settings.output_suffix()
-    signature = settings_signature(settings)
+    signature = settings_signature(settings, root)
     planned: list[PlanItem] = []
 
     for source in sources:
@@ -422,7 +422,7 @@ def _file_fingerprint_from_stat(path: Path, stat: os.stat_result) -> FileFingerp
     return FileFingerprint(size=stat.st_size, mtime_ns=stat.st_mtime_ns, sha256=digest.hexdigest())
 
 
-def settings_signature(settings: ConvertSettings) -> str:
+def settings_signature(settings: ConvertSettings, project_root: Path | None = None) -> str:
     payload = {
         "kind": settings.kind,
         "output_format": settings.output_format,
@@ -440,7 +440,7 @@ def settings_signature(settings: ConvertSettings) -> str:
         "date": settings.date,
         "number_sections": settings.number_sections,
         "reference_docx": settings.reference_docx,
-        "reference_docx_stat": _file_stat_signature(settings.reference_docx),
+        "reference_docx_stat": _file_stat_signature(settings.reference_docx, project_root),
         "default_font": settings.default_font,
         "default_font_size": settings.default_font_size,
         "table_borders": settings.table_borders,
@@ -877,14 +877,18 @@ def _resolve_project_path(project_root: Path, path_value: str) -> Path:
     return (project_root / candidate).resolve()
 
 
-def _file_stat_signature(path_value: str) -> dict[str, int | str] | None:
+def _file_stat_signature(path_value: str, project_root: Path | None = None) -> dict[str, int | str] | None:
     if not path_value:
         return None
     path = Path(path_value).expanduser()
+    if not path.is_absolute() and project_root:
+        path = (project_root / path).resolve()
+    else:
+        path = path.resolve()
     if not path.exists():
         return {"path": str(path), "missing": 1}
     stat = path.stat()
-    return {"path": str(path.resolve()), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+    return {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
 
 
 def _check_command(name: str, command: str, *, allow_version_failure: bool = False) -> DependencyCheck:

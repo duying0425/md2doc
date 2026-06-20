@@ -26,6 +26,7 @@ from md2doc.converter import (
     scan_markdown_files,
     scan_source_files,
     settings_from_project,
+    settings_signature,
 )
 from md2doc.project import KIND_DOC2MD, KIND_QMD2PPT, ProjectConfig
 
@@ -242,6 +243,17 @@ class ConverterTests(unittest.TestCase):
             self.assertEqual(settings.reference_docx, str(root / "reference.docx"))
             self.assertEqual(settings.table_borders, "bordered")
             self.assertEqual(settings.mermaid_format, "svg")
+
+    def test_settings_signature_resolves_reference_docx_relative_to_project_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ref_path = root / "template.docx"
+            ref_path.write_text("dummy", encoding="utf-8")
+            settings = ConvertSettings(reference_docx="template.docx")
+            sig_with_root = settings_signature(settings, root)
+            sig_no_root = settings_signature(settings)
+            if not Path("template.docx").exists():
+                self.assertNotEqual(sig_with_root, sig_no_root)
 
     def test_pandoc_command_includes_document_options(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
