@@ -521,10 +521,12 @@ class Md2DocApp(tk.Tk):
             iid = self.iid_by_source.get(str(item.source), self._next_iid())
             self._insert_or_update_plan_item(iid, item)
             if item.action == "convert":
-                self._set_item_state(item, _state_label("queued"), "Waiting for Pandoc", "queued")
+                tool = "MarkItDown" if self.current_project and self.current_project.kind == KIND_DOC2MD else "Pandoc"
+                self._set_item_state(item, _state_label("queued"), f"Waiting for {tool}", "queued")
 
     def _mark_item_running(self, item: PlanItem) -> None:
-        self._set_item_state(item, _state_label("running"), "Running Pandoc", "running")
+        tool = "MarkItDown" if self.current_project and self.current_project.kind == KIND_DOC2MD else "Pandoc"
+        self._set_item_state(item, _state_label("running"), f"Running {tool}", "running")
         self.status_var.set(f"Converting {item.relative_source} ({self.conversion_done}/{self.conversion_total})")
 
     def _handle_conversion_result(self, result: ConversionResult) -> None:
