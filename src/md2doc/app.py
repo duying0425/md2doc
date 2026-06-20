@@ -174,9 +174,9 @@ class Md2DocApp(tk.Tk):
 
         progress_frame = ttk.Frame(main)
         progress_frame.grid(row=4, column=0, columnspan=2, sticky="ew", pady=self._pad(8, 0))
-        progress_frame.columnconfigure(1, weight=1)
+        progress_frame.columnconfigure(0, weight=1)
         self.status_var = tk.StringVar(value="Ready")
-        ttk.Label(progress_frame, textvariable=self.status_var, width=34).grid(row=0, column=0, sticky="w")
+        ttk.Label(progress_frame, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
         self.progress_var = tk.DoubleVar(value=0)
         self.progress_bar = ttk.Progressbar(
             progress_frame,
@@ -185,7 +185,7 @@ class Md2DocApp(tk.Tk):
             variable=self.progress_var,
             maximum=1,
         )
-        self.progress_bar.grid(row=0, column=1, sticky="ew")
+        self.progress_bar.grid(row=1, column=0, sticky="ew", pady=self._pad(4, 0))
 
         columns = ("state", "file", "reason")
         self.tree = ttk.Treeview(main, columns=columns, show="headings", selectmode="extended")
