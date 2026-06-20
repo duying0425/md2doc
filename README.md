@@ -1,5 +1,7 @@
 # md2doc
 
+[简体中文](README_zh.md) | English
+
 Local Markdown document converter powered by Pandoc and `mermaid-filter`.
 
 ## Features
