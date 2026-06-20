@@ -669,6 +669,7 @@ class Md2DocApp(tk.Tk):
             state = self._get_or_create_state(project.root)
             state.status_text = status_text
             state.log_content += log_msg + "\n"
+            self._save_project_state(project.root)
             self._refresh_busy_state()
             return
         queued_sources = [item.source for item in queued]
@@ -693,6 +694,7 @@ class Md2DocApp(tk.Tk):
         self._append_log(log_msg)
         state = self._get_or_create_state(project.root)
         state.log_content += log_msg + "\n"
+        self._save_project_state(project.root)
         
         self.worker = threading.Thread(target=work, daemon=True)
         self._set_busy(True)
