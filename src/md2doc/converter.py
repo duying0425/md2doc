@@ -183,7 +183,7 @@ def settings_from_project(config: ProjectConfig, *, force: bool = False) -> Conv
 
 def check_dependencies(settings: ConvertSettings) -> list[DependencyCheck]:
     if settings.kind == KIND_DOC2MD:
-        return [_check_command("MarkItDown", settings.markitdown_cmd, allow_version_failure=True)]
+        return [_check_markitdown(settings.markitdown_cmd)]
     return [
         _check_command("Pandoc", settings.pandoc_cmd),
         _check_command("mermaid-filter", settings.mermaid_filter_cmd, allow_version_failure=True),
@@ -426,6 +426,9 @@ def _run_one(project_root: Path, item: PlanItem, settings: ConvertSettings) -> C
 
 
 def _run_markitdown(item: PlanItem, settings: ConvertSettings) -> ConversionResult:
+    if _should_use_markitdown_api(settings.markitdown_cmd):
+        return _run_markitdown_api(item)
+
     item.output.parent.mkdir(parents=True, exist_ok=True)
     cmd = _markitdown_command(item, settings)
     completed = subprocess.run(
@@ -449,6 +452,52 @@ def _run_markitdown(item: PlanItem, settings: ConvertSettings) -> ConversionResu
         message=message,
         returncode=completed.returncode,
     )
+
+
+def _run_markitdown_api(item: PlanItem) -> ConversionResult:
+    item.output.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        from markitdown import MarkItDown
+
+        result = MarkItDown().convert(item.source)
+        item.output.write_text(getattr(result, "text_content", "") or "", encoding="utf-8")
+    except Exception as exc:
+        return ConversionResult(
+            item=item,
+            status="failed",
+            message=str(exc) or "MarkItDown failed",
+            returncode=1,
+        )
+    return ConversionResult(item=item, status="converted", message="converted", returncode=0)
+
+
+def _should_use_markitdown_api(command: str) -> bool:
+    args = _command_args(command)
+    if not args or Path(args[0]).name.lower() not in {"markitdown", "markitdown.exe", "markitdown.cmd"}:
+        return False
+    return not _command_exists(_resolve_command(command)[0]) and _markitdown_api_available()
+
+
+def _markitdown_api_available() -> bool:
+    try:
+        from markitdown import MarkItDown  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def _check_markitdown(command: str) -> DependencyCheck:
+    args = _resolve_command(command)
+    if _command_exists(args[0]):
+        return DependencyCheck(name="MarkItDown", command=command, available=True, detail=f"found at {args[0]}")
+    if _should_use_markitdown_api(command):
+        return DependencyCheck(
+            name="MarkItDown",
+            command=command,
+            available=True,
+            detail="available through bundled Python package",
+        )
+    return DependencyCheck(name="MarkItDown", command=command, available=False, detail=f"{command} was not found")
 
 
 def _reset_mermaid_filter_error_log(source_dir: Path) -> Path:

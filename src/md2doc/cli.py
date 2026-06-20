@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+import os
 from pathlib import Path
 import sys
 
@@ -30,6 +31,7 @@ class CliUsageError(ValueError):
 
 
 def main(argv: list[str] | None = None) -> int:
+    _ensure_standard_streams()
     parser = argparse.ArgumentParser(
         prog="md2doc",
         description=(
@@ -114,6 +116,13 @@ def main(argv: list[str] | None = None) -> int:
 
     parser.print_help()
     return 1
+
+
+def _ensure_standard_streams() -> None:
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
 
 
 def _add_conversion_arguments(parser: argparse.ArgumentParser, *, dry_run: bool) -> None:

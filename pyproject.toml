@@ -7,6 +7,11 @@ dependencies = [
     "markitdown[docx,pptx,xlsx]>=0.0.1a2",
 ]
 
+[project.optional-dependencies]
+build = [
+    "pyinstaller>=6.0",
+]
+
 [project.scripts]
 md2doc = "md2doc.cli:main"
 

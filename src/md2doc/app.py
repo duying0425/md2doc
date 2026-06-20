@@ -21,6 +21,7 @@ from .converter import (
     scan_source_files,
     settings_from_project,
 )
+from .dependencies import ensure_startup_dependencies
 from .project import (
     KIND_DOC2MD,
     KIND_MD2DOC,
@@ -823,8 +824,79 @@ class SettingsDialog(tk.Toplevel):
 
 def run_app() -> None:
     enable_high_dpi_awareness()
+    dependency_error = None
+    if not _skip_startup_dependency_setup():
+        dependency_error = _run_dependency_setup_window()
+
     app = Md2DocApp()
+    if dependency_error:
+        app.after(250, lambda: messagebox.showwarning("Dependency setup", dependency_error, parent=app))
     app.mainloop()
+
+
+def _skip_startup_dependency_setup() -> bool:
+    return os.environ.get("MD2DOC_SKIP_DEP_INSTALL", "").lower() in {"1", "true", "yes"}
+
+
+def _run_dependency_setup_window() -> str | None:
+    root = tk.Tk()
+    root.title("md2doc setup")
+    root.geometry("460x150")
+    root.resizable(False, False)
+    root.withdraw()
+
+    frame = ttk.Frame(root, padding=16)
+    frame.grid(row=0, column=0, sticky="nsew")
+    frame.columnconfigure(0, weight=1)
+
+    status_var = tk.StringVar(value="Checking conversion tools...")
+    ttk.Label(frame, text="Preparing conversion tools").grid(row=0, column=0, sticky="w")
+    ttk.Label(frame, textvariable=status_var, wraplength=420).grid(row=1, column=0, sticky="ew", pady=(8, 10))
+    progress = ttk.Progressbar(frame, mode="indeterminate")
+    progress.grid(row=2, column=0, sticky="ew")
+    progress.start(12)
+
+    root.update_idletasks()
+    x = root.winfo_screenwidth() // 2 - root.winfo_width() // 2
+    y = root.winfo_screenheight() // 2 - root.winfo_height() // 2
+    root.geometry(f"+{x}+{y}")
+    root.deiconify()
+
+    events: queue.Queue[tuple[str, str | None]] = queue.Queue()
+
+    def progress_callback(message: str) -> None:
+        events.put(("progress", message))
+
+    def worker() -> None:
+        try:
+            ensure_startup_dependencies(on_progress=progress_callback)
+        except Exception as exc:
+            events.put(("error", str(exc)))
+        finally:
+            events.put(("done", None))
+
+    error_message: str | None = None
+
+    def poll() -> None:
+        nonlocal error_message
+        while True:
+            try:
+                event, message = events.get_nowait()
+            except queue.Empty:
+                break
+            if event == "progress" and message:
+                status_var.set(message)
+            elif event == "error" and message:
+                error_message = message
+            elif event == "done":
+                root.destroy()
+                return
+        root.after(100, poll)
+
+    threading.Thread(target=worker, daemon=True).start()
+    root.after(100, poll)
+    root.mainloop()
+    return error_message
 
 
 def enable_high_dpi_awareness() -> None:
