@@ -333,8 +333,7 @@ class Md2DocApp(tk.Tk):
 
         buttons = ttk.Frame(frame)
         buttons.grid(row=4, column=0, sticky="e", pady=self._pad(16, 0))
-        ttk.Button(buttons, text="Cancel", command=dialog.destroy).grid(row=0, column=0, padx=self._pad(0, 8))
-        ttk.Button(buttons, text="Continue", command=confirm).grid(row=0, column=1)
+        ttk.Button(buttons, text="Continue", command=confirm).grid(row=0, column=0)
 
         dialog.bind("<Return>", lambda _event: confirm())
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
