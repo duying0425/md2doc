@@ -14,6 +14,7 @@ from typing import Callable, Iterable, Literal
 import xml.etree.ElementTree as ET
 import zipfile
 
+from ._process import hidden_subprocess_kwargs
 from .project import KIND_DOC2MD, KIND_MD2DOC, PROJECT_DIR_NAME, ProjectConfig
 
 
@@ -280,6 +281,8 @@ def plan_conversions(
     sources: Iterable[Path],
     settings: ConvertSettings,
     manifest: BuildManifest | None = None,
+    *,
+    use_cached_fingerprints: bool = False,
 ) -> list[PlanItem]:
     root = Path(project_root).expanduser().resolve()
     manifest = manifest or BuildManifest.load(root)
@@ -291,9 +294,13 @@ def plan_conversions(
     for source in sources:
         source = Path(source).expanduser().resolve()
         relative = source.relative_to(root).as_posix()
-        fingerprint = file_fingerprint(source)
-        output = output_dir / source.relative_to(root).with_suffix(output_suffix)
         record = manifest.records.get(relative)
+        fingerprint = _plan_fingerprint(
+            source,
+            record,
+            use_cached=use_cached_fingerprints,
+        )
+        output = output_dir / source.relative_to(root).with_suffix(output_suffix)
         action, reason = _decide_action(
             settings=settings,
             record=record,
@@ -356,7 +363,29 @@ def run_conversions(
 
 
 def file_fingerprint(path: Path) -> FileFingerprint:
-    stat = path.stat()
+    return _file_fingerprint_from_stat(path, path.stat())
+
+
+def _plan_fingerprint(
+    source: Path,
+    record: dict | None,
+    *,
+    use_cached: bool,
+) -> FileFingerprint:
+    stat = source.stat()
+    if use_cached:
+        cached_sha = str(record.get("source_sha256") or "") if record else ""
+        if record and (
+            cached_sha
+            and record.get("source_size") == stat.st_size
+            and record.get("source_mtime_ns") == stat.st_mtime_ns
+        ):
+            return FileFingerprint(size=stat.st_size, mtime_ns=stat.st_mtime_ns, sha256=cached_sha)
+        return FileFingerprint(size=stat.st_size, mtime_ns=stat.st_mtime_ns, sha256="")
+    return _file_fingerprint_from_stat(source, stat)
+
+
+def _file_fingerprint_from_stat(path: Path, stat: os.stat_result) -> FileFingerprint:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -408,6 +437,7 @@ def _run_one(project_root: Path, item: PlanItem, settings: ConvertSettings) -> C
         text=True,
         check=False,
         env=env,
+        **hidden_subprocess_kwargs(),
     )
     mermaid_error = _mermaid_filter_error_text(mermaid_error_path)
     if completed.returncode == 0:
@@ -438,6 +468,7 @@ def _run_markitdown(item: PlanItem, settings: ConvertSettings) -> ConversionResu
         encoding="utf-8",
         errors="replace",
         check=False,
+        **hidden_subprocess_kwargs(),
     )
     if completed.returncode == 0 and item.output.exists():
         return ConversionResult(item=item, status="converted", message="converted", returncode=0)
@@ -655,6 +686,7 @@ def _ensure_generated_reference_docx(project_root: Path, settings: ConvertSettin
         pandoc_cmd + ["--print-default-data-file", "reference.docx"],
         capture_output=True,
         check=False,
+        **hidden_subprocess_kwargs(),
     )
     if completed.returncode != 0:
         message = (completed.stderr or b"Unable to generate reference DOCX").decode(
@@ -831,7 +863,13 @@ def _check_command(name: str, command: str, *, allow_version_failure: bool = Fal
         return DependencyCheck(name=name, command=command, available=True, detail=f"found at {args[0]}")
 
     try:
-        completed = subprocess.run(args + ["--version"], capture_output=True, text=True, check=False)
+        completed = subprocess.run(
+            args + ["--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            **hidden_subprocess_kwargs(),
+        )
     except FileNotFoundError:
         return DependencyCheck(name=name, command=command, available=False, detail=f"{command} was not found")
     except OSError as exc:

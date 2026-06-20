@@ -133,6 +133,83 @@ class ConverterTests(unittest.TestCase):
             payload = json.loads((root / ".md2doc" / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(payload["records"]["a.md"]["source_sha256"], item.fingerprint.sha256)
 
+    def test_plan_can_reuse_cached_fingerprint_when_source_metadata_matches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "a.md"
+            source.write_text("# A", encoding="utf-8")
+            settings = ConvertSettings(output_dir=root / "output")
+            item = plan_conversions(root, [source], settings)[0]
+            item.output.parent.mkdir()
+            item.output.write_text("generated", encoding="utf-8")
+            manifest = BuildManifest(path=root / ".md2doc" / "manifest.json")
+            manifest.record_success(item)
+
+            with patch(
+                "md2doc.converter._file_fingerprint_from_stat",
+                side_effect=AssertionError("full fingerprint should not run"),
+            ):
+                planned = plan_conversions(
+                    root,
+                    [source],
+                    settings,
+                    manifest,
+                    use_cached_fingerprints=True,
+                )
+
+            self.assertEqual(planned[0].action, "skip")
+            self.assertEqual(planned[0].fingerprint.sha256, item.fingerprint.sha256)
+
+    def test_cached_plan_uses_stat_only_when_no_manifest_record_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "a.md"
+            source.write_text("# A", encoding="utf-8")
+
+            with patch(
+                "md2doc.converter._file_fingerprint_from_stat",
+                side_effect=AssertionError("full fingerprint should not run"),
+            ):
+                planned = plan_conversions(
+                    root,
+                    [source],
+                    ConvertSettings(output_dir=root / "output"),
+                    use_cached_fingerprints=True,
+                )
+
+            self.assertEqual(planned[0].action, "convert")
+            self.assertEqual(planned[0].reason, "output missing")
+            self.assertEqual(planned[0].fingerprint.sha256, "")
+
+    def test_cached_plan_uses_stat_only_when_source_metadata_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "a.md"
+            source.write_text("# A", encoding="utf-8")
+            settings = ConvertSettings(output_dir=root / "output")
+            item = plan_conversions(root, [source], settings)[0]
+            item.output.parent.mkdir()
+            item.output.write_text("generated", encoding="utf-8")
+            manifest = BuildManifest(path=root / ".md2doc" / "manifest.json")
+            manifest.record_success(item)
+            source.write_text("# A changed", encoding="utf-8")
+
+            with patch(
+                "md2doc.converter._file_fingerprint_from_stat",
+                side_effect=AssertionError("full fingerprint should not run"),
+            ):
+                planned = plan_conversions(
+                    root,
+                    [source],
+                    settings,
+                    manifest,
+                    use_cached_fingerprints=True,
+                )
+
+            self.assertEqual(planned[0].action, "convert")
+            self.assertEqual(planned[0].reason, "source changed")
+            self.assertEqual(planned[0].fingerprint.sha256, "")
+
     def test_project_format_options_round_trip_into_settings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

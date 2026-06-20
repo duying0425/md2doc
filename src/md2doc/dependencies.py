@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
+from ._process import hidden_subprocess_kwargs
 from .converter import ConvertSettings, check_dependencies, missing_dependency_message
 
 
@@ -92,7 +93,13 @@ def _install_with_winget(
 
 
 def _run_command(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, capture_output=True, text=True, check=False)
+    return subprocess.run(
+        args,
+        capture_output=True,
+        text=True,
+        check=False,
+        **hidden_subprocess_kwargs(),
+    )
 
 
 def _run_or_raise(args: Sequence[str], runner: InstallerRunner) -> None:
