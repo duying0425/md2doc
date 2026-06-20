@@ -11,6 +11,19 @@ import tkinter as tk
 import traceback
 from tkinter import filedialog, font as tkfont, messagebox, simpledialog, ttk
 
+# Patch tkinter.Variable.__del__ to prevent crashes when variables are garbage
+# collected on background threads (causing RuntimeError: main thread is not in main loop).
+_original_variable_del = tk.Variable.__del__
+
+def _safe_variable_del(self) -> None:
+    try:
+        if threading and threading.current_thread() is threading.main_thread():
+            _original_variable_del(self)
+    except Exception:
+        pass
+
+tk.Variable.__del__ = _safe_variable_del
+
 from .converter import (
     ConvertSettings,
     ConversionResult,
@@ -1059,6 +1072,16 @@ def _run_dependency_setup_window() -> str | None:
     threading.Thread(target=worker, daemon=True).start()
     root.after(100, poll)
     root.mainloop()
+
+    # Explicitly clean up tkinter widgets and variables on the main thread
+    # to avoid deferred garbage collection on background threads.
+    try:
+        del status_var
+        del progress
+        del root
+    except Exception:
+        pass
+
     return error_message
 
 
