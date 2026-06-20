@@ -162,13 +162,17 @@ class Md2DocApp(tk.Tk):
             width=8,
         )
         self.format_box.grid(row=0, column=1, sticky="w", padx=self._pad(6, 16))
+        self.format_box.bind("<<ComboboxSelected>>", lambda event: self._on_settings_changed())
 
         ttk.Label(controls, text="Output").grid(row=0, column=2, sticky="w")
         self.output_var = tk.StringVar(value=".")
         self.output_entry = ttk.Entry(controls, textvariable=self.output_var, width=28)
         self.output_entry.grid(row=0, column=3, sticky="ew", padx=self._pad(6, 16))
+        self.output_entry.bind("<Return>", lambda event: self._on_settings_changed())
+        self.output_entry.bind("<FocusOut>", lambda event: self._on_settings_changed())
 
         self.force_var = tk.BooleanVar(value=False)
+        self.force_var.trace_add("write", lambda *args: self._on_force_changed())
         ttk.Checkbutton(controls, text="Force", variable=self.force_var).grid(row=0, column=4, sticky="w")
 
         action_bar = ttk.Frame(main)
@@ -425,9 +429,7 @@ class Md2DocApp(tk.Tk):
             self.tree.insert("", tk.END, iid=iid, values=values, tags=(tag,))
 
         self._refresh_busy_state()
-
-        if is_new:
-            self._scan()
+        self._scan()
 
     def _set_project(self, project: ProjectConfig) -> None:
         if self.current_project:
@@ -472,6 +474,14 @@ class Md2DocApp(tk.Tk):
             output_dir=(project.root / output_dir).resolve(),
             force=self.force_var.get(),
         )
+
+    def _on_force_changed(self) -> None:
+        if self.current_project:
+            self._scan()
+
+    def _on_settings_changed(self) -> None:
+        if self.current_project:
+            self._scan()
 
     def _scan(self) -> None:
         project = self.current_project
