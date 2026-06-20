@@ -2,16 +2,20 @@
 
 [简体中文](README_zh.md) | English
 
-Local Markdown document converter powered by Pandoc and `mermaid-filter`.
+Local document converter supporting three types of project formats:
+1. **Markdown to documents** (`md2doc`): Convert Markdown (`.md`, `.markdown`) to DOCX/HTML/PDF using Pandoc and `mermaid-filter`.
+2. **Office documents to Markdown** (`doc2md`): Convert Word, PowerPoint, and Excel (`.docx`, `.pptx`, `.xlsx`, etc.) to Markdown using MarkItDown.
+3. **Quarto Markdown to PowerPoint** (`qmd2ppt`): Convert Quarto Markdown (`.qmd`) to PowerPoint presentations (`.pptx`) using Quarto CLI.
 
 ## Features
 
-- Create projects from folders.
-- Scan Markdown files recursively.
+- Create projects from folders, choosing from three conversion formats.
+- Scan source files recursively (handles `.md`/`.markdown` for Markdown projects, `.docx`/`.pptx`/etc. for Office projects, and `.qmd` for Quarto projects).
 - Convert one selected file or a batch of files.
-- Use Pandoc with `mermaid-filter` so Mermaid diagrams are rendered during export.
-- Skip unchanged Markdown files when a previous output already exists.
-- Configure document output per project: table of contents, section numbering, title metadata, Word reference template, font, table borders, Mermaid image defaults, and extra Pandoc arguments.
+- Use Pandoc with `mermaid-filter` so Mermaid diagrams are rendered during export (for Markdown projects).
+- Use Quarto CLI to compile `.qmd` documents into `.pptx` slides (for Quarto projects).
+- Skip unchanged source files when a previous output already exists.
+- Configure document output per project.
 - Store project metadata in `.md2doc/project.json`.
 - Store conversion history in `.md2doc/manifest.json`.
 
@@ -38,12 +42,15 @@ DOCX image paragraphs are centered automatically after conversion.
 
 ## Requirements
 
-Install the external conversion tools before converting:
+Install the external conversion tools depending on your project type:
 
-```powershell
-winget install JohnMacFarlane.Pandoc
-npm install -g mermaid-filter
-```
+- **Markdown to documents**: Install Pandoc and `mermaid-filter`:
+  ```powershell
+  winget install JohnMacFarlane.Pandoc
+  npm install -g mermaid-filter
+  ```
+- **Office documents to Markdown**: The required `markitdown` Python package is automatically installed as a dependency.
+- **Quarto Markdown to PowerPoint**: Install Quarto CLI from [quarto.org](https://quarto.org/docs/get-started/).
 
 The app can still open and scan projects without those tools installed.
 
@@ -96,11 +103,11 @@ When the package is installed, replace `python -m md2doc` with `md2doc`.
 ### Commands
 
 - `md2doc` or `md2doc gui`: open the desktop app.
-- `md2doc init <folder>`: create `.md2doc/project.json`.
-- `md2doc scan <folder>`: list Markdown files in a project.
-- `md2doc plan <folder-or-file> [files...]`: print the conversion plan without running Pandoc.
+- `md2doc init <folder>`: create `.md2doc/project.json`. Accepts optional `--kind md2doc|doc2md|qmd2ppt`.
+- `md2doc scan <folder>`: list source files in a project.
+- `md2doc plan <folder-or-file> [files...]`: print the conversion plan.
 - `md2doc convert <folder-or-file> [files...]`: run conversions.
-- `md2doc deps`: check Pandoc and `mermaid-filter`.
+- `md2doc deps`: check installed dependency tools (Pandoc, MarkItDown, Quarto).
 
 `convert` and `plan` accept either a project folder or one Markdown file. When a
 folder is used, optional file arguments are resolved relative to the project

@@ -2,16 +2,19 @@
 
 [简体中文](README_zh.md) | [English](README.md)
 
-基于 Pandoc 和 `mermaid-filter` 的本地 Markdown 文档转换工具。
+支持三类项目格式的本地文档转换工具：
+1. **Markdown 转文档** (`md2doc`)：使用 Pandoc 和 `mermaid-filter` 将 Markdown (`.md`, `.markdown`) 转换为 DOCX/HTML/PDF。
+2. **Office 文档转 Markdown** (`doc2md`)：使用 MarkItDown 将 Word、PowerPoint 和 Excel (`.docx`, `.pptx`, `.xlsx` 等) 转换为 Markdown。
+3. **Quarto 转 PowerPoint** (`qmd2ppt`)：使用 Quarto CLI 将 Quarto Markdown (`.qmd`) 转换为 PowerPoint 演示文稿 (`.pptx`)。
 
 ## 功能特性
 
-- **从文件夹创建项目**。
-- **递归扫描 Markdown 文件**。
+- **从文件夹创建项目**，支持选择三类转换项目类型。
+- **递归扫描源文件**（Markdown 项目扫描 `.md`/`.markdown`，Office 项目扫描 `.docx`/`.pptx`/等，Quarto 项目扫描 `.qmd`）。
 - **转换单个选中文件或批量转换文件**。
-- **结合 Pandoc 与 `mermaid-filter`**，在导出时自动渲染 Mermaid 图表。
-- **智能跳过未修改的 Markdown 文件**（当已有历史输出且源文件未更改时）。
-- **针对每个项目配置文档输出参数**：包括目录（TOC）、章节编号、标题元数据、Word 引用模板、字体、表格边框、Mermaid 图片默认值以及额外的 Pandoc 参数。
+- **集成外部工具进行渲染**（Markdown 项目结合 Pandoc 与 `mermaid-filter` 渲染 Mermaid，Quarto 项目使用 Quarto CLI 渲染 PPTX 幻灯片）。
+- **智能跳过未修改的源文件**（当已有历史输出且源文件未更改时）。
+- **个性化项目配置参数**。
 - **在 `.md2doc/project.json` 中存储项目元数据**。
 - **在 `.md2doc/manifest.json` 中存储转换历史记录**。
 
@@ -39,12 +42,15 @@ docs/guide.md   -> docs/guide.docx
 
 ## 环境要求
 
-转换前请先安装外部转换工具：
+根据您使用的项目类型安装对应的外部转换工具：
 
-```powershell
-winget install JohnMacFarlane.Pandoc
-npm install -g mermaid-filter
-```
+- **Markdown 转文档**：安装 Pandoc 和 `mermaid-filter`：
+  ```powershell
+  winget install JohnMacFarlane.Pandoc
+  npm install -g mermaid-filter
+  ```
+- **Office 文档转 Markdown**：必需的 Python 库 `markitdown` 会在安装项目包时作为依赖自动安装。
+- **Quarto 转 PowerPoint**：从 [quarto.org](https://quarto.org/docs/get-started/) 安装 Quarto CLI。
 
 即使未安装这些工具，应用依然可以打开并扫描项目。
 
@@ -94,11 +100,11 @@ python -m md2doc deps
 ### 命令列表
 
 - `md2doc` 或 `md2doc gui`：打开桌面应用。
-- `md2doc init <folder>`：创建 `.md2doc/project.json`。
-- `md2doc scan <folder>`：列出项目中的 Markdown 文件。
-- `md2doc plan <folder-or-file> [files...]`：打印转换计划，而不实际运行 Pandoc。
+- `md2doc init <folder>`：创建 `.md2doc/project.json`，可通过 `--kind md2doc|doc2md|qmd2ppt` 参数指定类型。
+- `md2doc scan <folder>`：列出项目中的源文件。
+- `md2doc plan <folder-or-file> [files...]`：打印转换计划。
 - `md2doc convert <folder-or-file> [files...]`：执行文档转换。
-- `md2doc deps`：检查 Pandoc 和 `mermaid-filter` 是否已正确安装。
+- `md2doc deps`：检查 Pandoc、MarkItDown、Quarto 等工具的安装状态。
 
 `convert` 和 `plan` 既可以接收项目文件夹，也可以接收单个 Markdown 文件。当指定文件夹时，可选的文件参数会解析为相对于项目文件夹的相对路径：
 
