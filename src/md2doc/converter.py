@@ -87,7 +87,7 @@ class ConvertSettings:
     mermaid_format: str = "png"
     mermaid_theme: str = "default"
     mermaid_background: str = "white"
-    mermaid_scale: float = 0.0
+    mermaid_scale: float = 3.0
 
     def output_suffix(self) -> str:
         if self.kind == KIND_DOC2MD:

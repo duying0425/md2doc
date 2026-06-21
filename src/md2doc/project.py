@@ -64,7 +64,7 @@ class ProjectConfig:
     mermaid_format: str = "png"
     mermaid_theme: str = "default"
     mermaid_background: str = "white"
-    mermaid_scale: float = 0.0
+    mermaid_scale: float = 3.0
 
     @property
     def meta_dir(self) -> Path:
@@ -119,6 +119,14 @@ class ProjectConfig:
             output_format = "pptx"
         else:
             output_format = str(data.get("output_format") or "docx")
+        scale_val = data.get("mermaid_scale")
+        try:
+            mermaid_scale = float(scale_val) if scale_val is not None else 3.0
+            if mermaid_scale == 0.0:
+                mermaid_scale = 3.0
+        except (ValueError, TypeError):
+            mermaid_scale = 3.0
+
         return cls(
             name=str(data.get("name") or root.name),
             root=root,
@@ -142,7 +150,7 @@ class ProjectConfig:
             mermaid_format=str(data.get("mermaid_format") or "png"),
             mermaid_theme=str(data.get("mermaid_theme") or "default"),
             mermaid_background=str(data.get("mermaid_background") or "white"),
-            mermaid_scale=float(data.get("mermaid_scale") or 0.0),
+            mermaid_scale=mermaid_scale,
         )
 
     def save(self) -> None:
@@ -180,8 +188,19 @@ def load_project(root: Path | str) -> ProjectConfig:
     data = json.loads(config_file.read_text(encoding="utf-8"))
     config = ProjectConfig.from_dict(data)
     # Clean up legacy configs on disk: persist a normalized copy when the stored
-    # data predates the project kind or carries a stale format for its kind.
-    if data.get("kind") != config.kind or data.get("output_format") != config.output_format:
+    # data predates the project kind, carries a stale format for its kind,
+    # or has a scale value of 0.0 / missing scale that needs migration.
+    stored_scale = data.get("mermaid_scale")
+    try:
+        scale_needs_migration = stored_scale is None or float(stored_scale) == 0.0
+    except (ValueError, TypeError):
+        scale_needs_migration = True
+
+    if (
+        data.get("kind") != config.kind
+        or data.get("output_format") != config.output_format
+        or scale_needs_migration
+    ):
         config.save()
     ProjectRegistry().add(config)
     return config

@@ -1266,6 +1266,8 @@ class SettingsDialog(tk.Toplevel):
                 maximum=10.0,
                 allow_empty=True,
             )
+            if mermaid_scale == 0.0 or self.mermaid_scale_var.get().strip() == "":
+                mermaid_scale = 3.0
         except ValueError as exc:
             messagebox.showerror("Settings", str(exc), parent=self)
             return

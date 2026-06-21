@@ -304,7 +304,7 @@ class ConverterTests(unittest.TestCase):
         env = _mermaid_environment(ConvertSettings())
 
         self.assertNotIn("MERMAID_FILTER_WIDTH", env)
-        self.assertNotIn("MERMAID_FILTER_SCALE", env)
+        self.assertEqual(env["MERMAID_FILTER_SCALE"], "3.0")
         self.assertEqual(env["MERMAID_FILTER_FORMAT"], "png")
 
     def test_mermaid_environment_uses_custom_scale(self) -> None:
