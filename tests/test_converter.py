@@ -50,6 +50,27 @@ class ConverterTests(unittest.TestCase):
                 ["a.md", "sub/b.markdown"],
             )
 
+    def test_scan_markdown_files_excludes_subprojects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "a.md").write_text("# A", encoding="utf-8")
+            
+            # Independent subproject with its own .md2doc folder
+            (root / "sub_project").mkdir()
+            (root / "sub_project" / ".md2doc").mkdir()
+            (root / "sub_project" / "sub.md").write_text("# Sub", encoding="utf-8")
+            
+            # Normal subfolder (should be scanned)
+            (root / "normal_sub").mkdir()
+            (root / "normal_sub" / "b.md").write_text("# B", encoding="utf-8")
+
+            files = scan_markdown_files(root, output_dir=root / "output")
+
+            self.assertEqual(
+                [file.relative_to(root).as_posix() for file in files],
+                ["a.md", "normal_sub/b.md"],
+            )
+
     def test_scan_markdown_files_keeps_subdirs_when_output_is_project_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

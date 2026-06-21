@@ -288,6 +288,7 @@ def _scan_files(
                 for dirname in dirnames
                 if dirname not in excluded
                 and not _is_same_or_child(current_path / dirname, output_dir)
+                and not (current_path / dirname / PROJECT_DIR_NAME).is_dir()
             ]
             for filename in filenames:
                 path = current_path / filename
