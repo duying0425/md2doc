@@ -3,7 +3,7 @@
 [简体中文](README_zh.md) | English
 
 Local document converter supporting three types of project formats:
-1. **Markdown to documents** (`md2doc`): Convert Markdown (`.md`, `.markdown`) to DOCX/HTML/PDF using Pandoc and `mermaid-filter`.
+1. **Markdown to Word documents** (`md2doc`): Convert Markdown (`.md`, `.markdown`) to DOCX using Pandoc and `mermaid-filter`.
 2. **Office documents to Markdown** (`doc2md`): Convert Word, PowerPoint, and Excel (`.docx`, `.pptx`, `.xlsx`, etc.) to Markdown using MarkItDown.
 3. **Quarto Markdown to PowerPoint** (`qmd2ppt`): Convert Quarto Markdown (`.qmd`) to PowerPoint presentations (`.pptx`) using Quarto CLI.
 
@@ -12,7 +12,7 @@ Local document converter supporting three types of project formats:
 - Create projects from folders, choosing from three conversion formats.
 - Scan source files recursively (handles `.md`/`.markdown` for Markdown projects, `.docx`/`.pptx`/etc. for Office projects, and `.qmd` for Quarto projects).
 - Convert one selected file or a batch of files.
-- Use Pandoc with `mermaid-filter` so Mermaid diagrams are rendered during export (for Markdown projects).
+- Use Pandoc with `mermaid-filter` so Mermaid diagrams are rendered during DOCX export (for Markdown projects).
 - Use Quarto CLI to compile `.qmd` documents into `.pptx` slides (for Quarto projects).
 - Skip unchanged source files when a previous output already exists.
 - Configure document output per project.
@@ -81,9 +81,9 @@ Running without a subcommand opens the desktop app. Use `md2doc --help` or
 
 ## CLI
 
-The CLI can initialize projects, scan Markdown files, preview conversion plans,
-convert project batches, convert a single Markdown file directly, and check the
-external conversion tools.
+The CLI can initialize projects, scan project source files, preview conversion
+plans, convert project batches, convert a single source file directly, and check
+the external conversion tools.
 
 ```powershell
 $env:PYTHONPATH = "$PWD\src"
@@ -91,8 +91,8 @@ python -m md2doc init C:\docs --name "Docs" --format docx
 python -m md2doc scan C:\docs --no-recursive
 python -m md2doc plan C:\docs
 python -m md2doc convert C:\docs --format docx
-python -m md2doc convert C:\docs README.md docs\guide.md --format pdf --force
-python -m md2doc convert C:\docs\README.md --format html --output-dir C:\docs\build
+python -m md2doc convert C:\docs README.md docs\guide.md --format docx --force
+python -m md2doc convert C:\docs\README.md --format docx --output-dir C:\docs\build
 python -m md2doc deps
 ```
 
@@ -107,7 +107,7 @@ When the package is installed, replace `python -m md2doc` with `md2doc`.
 - `md2doc scan <folder>`: list source files in a project.
 - `md2doc plan <folder-or-file> [files...]`: print the conversion plan.
 - `md2doc convert <folder-or-file> [files...]`: run conversions.
-- `md2doc deps`: check installed dependency tools (Pandoc, MarkItDown, Quarto).
+- `md2doc deps`: check installed Markdown conversion tools (Pandoc and `mermaid-filter`).
 
 `convert` and `plan` accept either a project folder or one Markdown file. When a
 folder is used, optional file arguments are resolved relative to the project
@@ -122,7 +122,7 @@ md2doc convert C:\docs\README.md --format docx
 
 Common `plan` and `convert` options:
 
-- `--format docx|html|pdf`: override the project output format.
+- `--format docx`: override the Markdown project output format.
 - `--output-dir <folder>`: write outputs under a separate folder.
 - `--recursive` / `--no-recursive`: control project scanning.
 - `--force`: convert even when outputs look up to date.
@@ -131,7 +131,7 @@ Common `plan` and `convert` options:
 - `--toc`, `--toc-depth <n>`, `--number-sections`: document structure options.
 - `--title-page`, `--title`, `--subtitle`, `--author`, `--date`: metadata options.
 - `--reference-docx <file>`, `--default-font <name>`, `--font-size <n>`, `--table-borders template|bordered|plain`: DOCX styling options.
-- `--mermaid-format png|svg|pdf`, `--mermaid-theme <name>`, `--mermaid-background <value>`: Mermaid rendering options.
+- `--mermaid-format png|svg|pdf`, `--mermaid-theme <name>`, `--mermaid-background <value>`, `--mermaid-scale <n>`: Mermaid rendering options.
 - `--pandoc <command>`, `--mermaid-filter <command>`: override tool commands or paths.
 - `--pandoc-arg=<arg>`: append a raw Pandoc argument. Repeat for multiple arguments.
 

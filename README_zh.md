@@ -3,7 +3,7 @@
 [简体中文](README_zh.md) | [English](README.md)
 
 支持三类项目格式的本地文档转换工具：
-1. **Markdown 转文档** (`md2doc`)：使用 Pandoc 和 `mermaid-filter` 将 Markdown (`.md`, `.markdown`) 转换为 DOCX/HTML/PDF。
+1. **Markdown 转 Word 文档** (`md2doc`)：使用 Pandoc 和 `mermaid-filter` 将 Markdown (`.md`, `.markdown`) 转换为 DOCX。
 2. **Office 文档转 Markdown** (`doc2md`)：使用 MarkItDown 将 Word、PowerPoint 和 Excel (`.docx`, `.pptx`, `.xlsx` 等) 转换为 Markdown。
 3. **Quarto 转 PowerPoint** (`qmd2ppt`)：使用 Quarto CLI 将 Quarto Markdown (`.qmd`) 转换为 PowerPoint 演示文稿 (`.pptx`)。
 
@@ -12,7 +12,7 @@
 - **从文件夹创建项目**，支持选择三类转换项目类型。
 - **递归扫描源文件**（Markdown 项目扫描 `.md`/`.markdown`，Office 项目扫描 `.docx`/`.pptx`/等，Quarto 项目扫描 `.qmd`）。
 - **转换单个选中文件或批量转换文件**。
-- **集成外部工具进行渲染**（Markdown 项目结合 Pandoc 与 `mermaid-filter` 渲染 Mermaid，Quarto 项目使用 Quarto CLI 渲染 PPTX 幻灯片）。
+- **集成外部工具进行渲染**（Markdown 项目结合 Pandoc 与 `mermaid-filter` 渲染 Mermaid 并导出 DOCX，Quarto 项目使用 Quarto CLI 渲染 PPTX 幻灯片）。
 - **智能跳过未修改的源文件**（当已有历史输出且源文件未更改时）。
 - **个性化项目配置参数**。
 - **在 `.md2doc/project.json` 中存储项目元数据**。
@@ -80,7 +80,7 @@ md2doc
 
 ## 命令行界面 (CLI)
 
-CLI 可以执行初始化项目、扫描 Markdown 文件、预览转换计划、批量转换项目、直接转换单个 Markdown 文件以及检查外部转换工具等操作。
+CLI 可以执行初始化项目、扫描项目源文件、预览转换计划、批量转换项目、直接转换单个源文件以及检查外部转换工具等操作。
 
 ```powershell
 $env:PYTHONPATH = "$PWD\src"
@@ -88,8 +88,8 @@ python -m md2doc init C:\docs --name "Docs" --format docx
 python -m md2doc scan C:\docs --no-recursive
 python -m md2doc plan C:\docs
 python -m md2doc convert C:\docs --format docx
-python -m md2doc convert C:\docs README.md docs\guide.md --format pdf --force
-python -m md2doc convert C:\docs\README.md --format html --output-dir C:\docs\build
+python -m md2doc convert C:\docs README.md docs\guide.md --format docx --force
+python -m md2doc convert C:\docs\README.md --format docx --output-dir C:\docs\build
 python -m md2doc deps
 ```
 
@@ -104,7 +104,7 @@ python -m md2doc deps
 - `md2doc scan <folder>`：列出项目中的源文件。
 - `md2doc plan <folder-or-file> [files...]`：打印转换计划。
 - `md2doc convert <folder-or-file> [files...]`：执行文档转换。
-- `md2doc deps`：检查 Pandoc、MarkItDown、Quarto 等工具的安装状态。
+- `md2doc deps`：检查 Markdown 转换工具（Pandoc 和 `mermaid-filter`）的安装状态。
 
 `convert` 和 `plan` 既可以接收项目文件夹，也可以接收单个 Markdown 文件。当指定文件夹时，可选的文件参数会解析为相对于项目文件夹的相对路径：
 
@@ -117,7 +117,7 @@ md2doc convert C:\docs\README.md --format docx
 
 `plan` 和 `convert` 的通用选项：
 
-- `--format docx|html|pdf`：覆盖项目配置的输出格式。
+- `--format docx`：覆盖 Markdown 项目的输出格式。
 - `--output-dir <folder>`：将输出文件写入单独的文件夹。
 - `--recursive` / `--no-recursive`：控制项目扫描是否递归。
 - `--force`：强制转换，即使输出文件看起来已是最新。
@@ -126,7 +126,7 @@ md2doc convert C:\docs\README.md --format docx
 - `--toc`、`--toc-depth <n>`、`--number-sections`：文档结构选项（目录、目录深度、章节编号）。
 - `--title-page`、`--title`、`--subtitle`、`--author`、`--date`：文档元数据选项。
 - `--reference-docx <file>`、`--default-font <name>`、`--font-size <n>`、`--table-borders template|bordered|plain`：DOCX 样式选项。
-- `--mermaid-format png|svg|pdf`、`--mermaid-theme <name>`、`--mermaid-background <value>`：Mermaid 渲染选项。
+- `--mermaid-format png|svg|pdf`、`--mermaid-theme <name>`、`--mermaid-background <value>`、`--mermaid-scale <n>`：Mermaid 渲染选项。
 - `--pandoc <command>`、`--mermaid-filter <command>`：覆盖工具的执行命令或路径。
 - `--pandoc-arg=<arg>`：追加原始 Pandoc 参数。如需多个参数请重复使用该选项。
 
