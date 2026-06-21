@@ -10,6 +10,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import threading
 from typing import Callable, Iterable, Literal
 import xml.etree.ElementTree as ET
 import zipfile
@@ -42,17 +43,9 @@ W = f"{{{WORD_NS}}}"
 ET.register_namespace("w", WORD_NS)
 
 
-PlanAction = Literal["convert", "skip"]
-
-
-@dataclass(frozen=True)
-class DependencyCheck:
-    name: str
-    command: str
-    available: bool
-    detail: str
-
-
+class ConversionCancelledError(Exception):
+    """Raised when conversion is cancelled by the user."""
+    pass
 
 
 PlanAction = Literal["convert", "skip"]
@@ -360,6 +353,7 @@ def run_conversions(
     *,
     on_event: Callable[[ConversionResult], None] | None = None,
     on_start: Callable[[PlanItem], None] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> list[ConversionResult]:
     root = Path(project_root).expanduser().resolve()
     manifest = BuildManifest.load(root)
@@ -374,6 +368,9 @@ def run_conversions(
 
     results: list[ConversionResult] = []
     for item in items:
+        if cancel_event is not None and cancel_event.is_set():
+            raise ConversionCancelledError("Conversion cancelled by user")
+
         if item.action == "skip":
             result = ConversionResult(item=item, status="skipped", message=item.reason)
             results.append(result)
@@ -383,7 +380,7 @@ def run_conversions(
 
         if on_start:
             on_start(item)
-        result = _run_one(root, item, settings)
+        result = _run_one(root, item, settings, cancel_event=cancel_event)
         results.append(result)
         if result.status == "converted":
             manifest.record_success(item)
@@ -455,23 +452,131 @@ def settings_signature(settings: ConvertSettings, project_root: Path | None = No
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _run_one(project_root: Path, item: PlanItem, settings: ConvertSettings) -> ConversionResult:
+def _run_subprocess_with_cancel(
+    cmd: list[str],
+    *,
+    cwd: Path | str | None = None,
+    env: dict[str, str] | None = None,
+    capture_output: bool = False,
+    text: bool = False,
+    encoding: str | None = None,
+    errors: str | None = None,
+    check: bool = False,
+    cancel_event: threading.Event | None = None,
+    **kwargs,
+) -> subprocess.CompletedProcess:
+    if cancel_event is None:
+        return subprocess.run(
+            cmd,
+            cwd=cwd,
+            env=env,
+            capture_output=capture_output,
+            text=text,
+            encoding=encoding,
+            errors=errors,
+            check=check,
+            **kwargs,
+        )
+
+    stdout_opt = subprocess.PIPE if capture_output else None
+    stderr_opt = subprocess.PIPE if capture_output else None
+
+    p = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdout=stdout_opt,
+        stderr=stderr_opt,
+        text=text,
+        encoding=encoding,
+        errors=errors,
+        **kwargs,
+    )
+
+    stdout_chunks: list[str | bytes] = []
+    stderr_chunks: list[str | bytes] = []
+
+    try:
+        while p.poll() is None:
+            if cancel_event.is_set():
+                p.terminate()
+                try:
+                    p.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    p.kill()
+                    p.wait()
+                raise ConversionCancelledError("Conversion cancelled by user")
+
+            try:
+                stdout, stderr = p.communicate(timeout=0.1)
+                if stdout:
+                    stdout_chunks.append(stdout)
+                if stderr:
+                    stderr_chunks.append(stderr)
+            except subprocess.TimeoutExpired as exc:
+                if exc.stdout:
+                    stdout_chunks.append(exc.stdout)
+                if exc.stderr:
+                    stderr_chunks.append(exc.stderr)
+                continue
+    except Exception:
+        if p.poll() is None:
+            p.terminate()
+            try:
+                p.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+        raise
+
+    stdout_remain, stderr_remain = p.communicate()
+    if stdout_remain:
+        stdout_chunks.append(stdout_remain)
+    if stderr_remain:
+        stderr_chunks.append(stderr_remain)
+
+    stdout_res = "".join(stdout_chunks) if text else b"".join(stdout_chunks)
+    stderr_res = "".join(stderr_chunks) if text else b"".join(stderr_chunks)
+
+    if check and p.returncode != 0:
+        raise subprocess.CalledProcessError(
+            p.returncode,
+            cmd,
+            output=stdout_res,
+            stderr=stderr_res,
+        )
+
+    return subprocess.CompletedProcess(
+        args=cmd,
+        returncode=p.returncode,
+        stdout=stdout_res,
+        stderr=stderr_res,
+    )
+
+
+def _run_one(
+    project_root: Path,
+    item: PlanItem,
+    settings: ConvertSettings,
+    cancel_event: threading.Event | None = None,
+) -> ConversionResult:
     if settings.kind == KIND_DOC2MD:
-        return _run_markitdown(item, settings)
+        return _run_markitdown(item, settings, cancel_event=cancel_event)
     if settings.kind == KIND_QMD2PPT:
-        return _run_quarto(item, settings)
+        return _run_quarto(item, settings, cancel_event=cancel_event)
     item.output.parent.mkdir(parents=True, exist_ok=True)
     cmd = _pandoc_command(project_root, item, settings)
     env = os.environ.copy()
     env.update(_mermaid_environment(settings))
     mermaid_error_path = _reset_mermaid_filter_error_log(item.source.parent)
-    completed = subprocess.run(
+    completed = _run_subprocess_with_cancel(
         cmd,
         cwd=item.source.parent,
         capture_output=True,
         text=True,
         check=False,
         env=env,
+        cancel_event=cancel_event,
         **hidden_subprocess_kwargs(),
     )
     mermaid_error = _mermaid_filter_error_text(mermaid_error_path)
@@ -490,19 +595,24 @@ def _run_one(project_root: Path, item: PlanItem, settings: ConvertSettings) -> C
     )
 
 
-def _run_markitdown(item: PlanItem, settings: ConvertSettings) -> ConversionResult:
+def _run_markitdown(
+    item: PlanItem,
+    settings: ConvertSettings,
+    cancel_event: threading.Event | None = None,
+) -> ConversionResult:
     if _should_use_markitdown_api(settings.markitdown_cmd):
         return _run_markitdown_api(item)
 
     item.output.parent.mkdir(parents=True, exist_ok=True)
     cmd = _markitdown_command(item, settings)
-    completed = subprocess.run(
+    completed = _run_subprocess_with_cancel(
         cmd,
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
         check=False,
+        cancel_event=cancel_event,
         **hidden_subprocess_kwargs(),
     )
     if completed.returncode == 0 and item.output.exists():
@@ -1185,7 +1295,11 @@ def _is_same_or_child(path: Path, maybe_parent: Path | None) -> bool:
         return path.resolve() == maybe_parent
 
 
-def _run_quarto(item: PlanItem, settings: ConvertSettings) -> ConversionResult:
+def _run_quarto(
+    item: PlanItem,
+    settings: ConvertSettings,
+    cancel_event: threading.Event | None = None,
+) -> ConversionResult:
     item.output.parent.mkdir(parents=True, exist_ok=True)
     import uuid
     temp_filename = f"qmd2ppt_temp_{uuid.uuid4().hex}.pptx"
@@ -1203,7 +1317,7 @@ def _run_quarto(item: PlanItem, settings: ConvertSettings) -> ConversionResult:
         temp_filename
     ]
     
-    completed = subprocess.run(
+    completed = _run_subprocess_with_cancel(
         cmd,
         cwd=item.source.parent,
         capture_output=True,
@@ -1211,6 +1325,7 @@ def _run_quarto(item: PlanItem, settings: ConvertSettings) -> ConversionResult:
         encoding="utf-8",
         errors="replace",
         check=False,
+        cancel_event=cancel_event,
         **hidden_subprocess_kwargs(),
     )
     

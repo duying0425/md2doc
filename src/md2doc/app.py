@@ -27,6 +27,7 @@ tk.Variable.__del__ = _safe_variable_del
 from .converter import (
     ConvertSettings,
     ConversionResult,
+    ConversionCancelledError,
     PlanItem,
     check_dependencies,
     missing_dependency_message,
@@ -94,10 +95,12 @@ class Md2DocApp(tk.Tk):
         self.converted_count = 0
         self.skipped_count = 0
         self.failed_count = 0
+        self.cancel_event = threading.Event()
 
         self._build_ui()
         self._load_projects()
         self.after(150, self._poll_events)
+        self.protocol("WM_DELETE_WINDOW", self._on_closing)
 
     def report_callback_exception(self, exc_type, exc_value, exc_tb) -> None:
         message = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
@@ -183,6 +186,8 @@ class Md2DocApp(tk.Tk):
         self.convert_selected_button.pack(side="left", padx=self._pad(8, 0))
         self.convert_all_button = ttk.Button(action_bar, text="Convert all", command=self._convert_all)
         self.convert_all_button.pack(side="left", padx=self._pad(8, 0))
+        self.cancel_button = ttk.Button(action_bar, text="Stop", command=self._cancel_conversion, state="disabled")
+        self.cancel_button.pack(side="left", padx=self._pad(8, 0))
         self.check_tools_button = ttk.Button(action_bar, text="Check tools", command=self._check_tools)
         self.check_tools_button.pack(side="left", padx=self._pad(8, 0))
         self.settings_button = ttk.Button(action_bar, text="Settings", command=self._open_settings)
@@ -693,6 +698,7 @@ class Md2DocApp(tk.Tk):
             self._refresh_busy_state()
             return
         queued_sources = [item.source for item in queued]
+        self.cancel_event.clear()
 
         def work() -> None:
             try:
@@ -702,11 +708,14 @@ class Md2DocApp(tk.Tk):
                     settings,
                     on_event=lambda res: self.event_queue.put(("result", project.root, res)),
                     on_start=lambda item: self.event_queue.put(("start", project.root, item)),
+                    cancel_event=self.cancel_event,
                 )
                 converted = sum(1 for result in results if result.status == "converted")
                 skipped = sum(1 for result in results if result.status == "skipped")
                 failed = sum(1 for result in results if result.status == "failed")
                 self.event_queue.put(("done", project.root, converted, skipped, failed))
+            except ConversionCancelledError:
+                self.event_queue.put(("cancelled", project.root))
             except Exception as exc:
                 self.event_queue.put(("error", project.root, str(exc)))
 
@@ -717,8 +726,15 @@ class Md2DocApp(tk.Tk):
         self._save_project_state(project.root)
         
         self.worker = threading.Thread(target=work, daemon=True)
-        self._set_busy(True)
+        self._refresh_busy_state()
         self.worker.start()
+
+    def _cancel_conversion(self) -> None:
+        if self.cancel_event:
+            self.cancel_event.set()
+            self._append_log("Stopping conversion...")
+            self.status_var.set("Stopping...")
+            self.cancel_button.configure(state="disabled")
 
     def _record_already_skipped(self, items: list[PlanItem]) -> None:
         if not items:
@@ -805,6 +821,9 @@ class Md2DocApp(tk.Tk):
                     continue
                 if kind == "done":
                     self._handle_done_event(event[1], event[2], event[3], event[4])
+                    continue
+                if kind == "cancelled":
+                    self._handle_cancelled_event(event[1])
                     continue
                 if kind == "error":
                     self._handle_error_event(event[1], str(event[2]))
@@ -945,6 +964,20 @@ class Md2DocApp(tk.Tk):
             self.status_var.set(status_text)
             self._append_log(log_msg)
 
+    def _handle_cancelled_event(self, project_root: Path) -> None:
+        state = self._get_or_create_state(project_root)
+        state.status_text = "Conversion cancelled"
+        log_msg = "Conversion cancelled by user."
+        state.log_content += log_msg + "\n"
+        self._save_project_state(project_root)
+
+        self.worker = None
+        self._refresh_busy_state()
+
+        if self.current_project and self.current_project.root.resolve() == project_root.resolve():
+            self.status_var.set("Conversion cancelled")
+            self._append_log(log_msg)
+
     def _handle_error_event(self, project_root: Path, message: str) -> None:
         state = self._get_or_create_state(project_root)
         state.status_text = "Conversion failed"
@@ -989,6 +1022,20 @@ class Md2DocApp(tk.Tk):
     def _refresh_busy_state(self) -> None:
         converting = self.worker is not None and self.worker.is_alive()
         self._set_busy(self.scan_active or converting)
+        if converting:
+            self.cancel_button.configure(state="normal")
+        else:
+            self.cancel_button.configure(state="disabled")
+
+    def _on_closing(self) -> None:
+        converting = self.worker is not None and self.worker.is_alive()
+        if converting or self.scan_active:
+            if not messagebox.askyesno("Exit", "Conversion or scan is in progress. Are you sure you want to exit?"):
+                return
+            if converting:
+                self._cancel_conversion()
+                self.worker.join(timeout=1.0)
+        self.destroy()
 
     def _append_log(self, message: str) -> None:
         self.log.configure(state="normal")

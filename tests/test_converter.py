@@ -517,6 +517,55 @@ class ConverterTests(unittest.TestCase):
             self.assertEqual(err_path.read_text(encoding="utf-8"), "render failed\n")
             self.assertIn("mermaid-filter.err:\nrender failed", results[0].message)
 
+    def test_run_conversions_cancellation(self) -> None:
+        from md2doc.converter import ConversionCancelledError
+        import threading
+        import time
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "a.md"
+            output_dir = root / "output"
+            fake_pandoc = root / "fake_pandoc.py"
+            source.write_text("# A", encoding="utf-8")
+            
+            fake_pandoc.write_text(
+                "\n".join(
+                    [
+                        "import time",
+                        "import sys",
+                        "if '--version' in sys.argv:",
+                        "    print('fake pandoc 1.0')",
+                        "    sys.exit(0)",
+                        "time.sleep(2.0)",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            
+            cancel_event = threading.Event()
+            
+            def trigger_cancel():
+                time.sleep(0.3)
+                cancel_event.set()
+                
+            threading.Thread(target=trigger_cancel, daemon=True).start()
+            
+            start_time = time.time()
+            with self.assertRaises(ConversionCancelledError):
+                run_conversions(
+                    root,
+                    [source],
+                    ConvertSettings(
+                        output_dir=output_dir,
+                        pandoc_cmd=f"python {fake_pandoc}",
+                        mermaid_filter_cmd="python",
+                    ),
+                    cancel_event=cancel_event,
+                )
+            duration = time.time() - start_time
+            self.assertLess(duration, 1.5)
+
 class Doc2MdConverterTests(unittest.TestCase):
     def test_scan_source_files_picks_office_documents_for_doc2md(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
