@@ -19,7 +19,7 @@ from ._process import hidden_subprocess_kwargs
 from .project import KIND_DOC2MD, KIND_MD2DOC, KIND_QMD2PPT, PROJECT_DIR_NAME, ProjectConfig
 
 
-SUPPORTED_FORMATS = {"docx": ".docx", "html": ".html", "pdf": ".pdf", "pptx": ".pptx"}
+SUPPORTED_FORMATS = {"docx": ".docx", "pptx": ".pptx"}
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
 # Office documents that MarkItDown can turn into Markdown (Word/PowerPoint/Excel).
 OFFICE_SUFFIXES = {".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls"}
@@ -568,6 +568,7 @@ def _run_one(
     cmd = _pandoc_command(project_root, item, settings)
     env = os.environ.copy()
     env.update(_mermaid_environment(settings))
+    env["MD2DOC_RESOURCE_PATHS"] = os.pathsep.join([str(item.source.parent), str(project_root)])
     mermaid_error_path = _reset_mermaid_filter_error_log(item.source.parent)
     completed = _run_subprocess_with_cancel(
         cmd,
@@ -728,7 +729,63 @@ def _markitdown_command(item: PlanItem, settings: ConvertSettings) -> list[str]:
     ]
 
 
-LUA_FILTER_CONTENT = """-- mermaid-fit.lua
+LUA_FILTER_CONTENT = r"""-- mermaid-fit.lua
+local function url_decode(str)
+  str = string.gsub(str, "+", " ")
+  str = string.gsub(str, "%%(%x%x)", function(h)
+    return string.char(tonumber(h, 16))
+  end)
+  return str
+end
+
+local function split_path(str)
+  local t = {}
+  local sep = ";"
+  if not string.match(package.config, "^\\") then
+    sep = ":"
+  end
+  for chunk in string.gmatch(str, "[^" .. sep .. "]+") do
+    table.insert(t, chunk)
+  end
+  return t
+end
+
+local function resolve_filepath(src)
+  local f = io.open(src, "rb")
+  if f then
+    f:close()
+    return src
+  end
+  
+  local decoded = url_decode(src)
+  f = io.open(decoded, "rb")
+  if f then
+    f:close()
+    return decoded
+  end
+  
+  local paths_str = os.getenv("MD2DOC_RESOURCE_PATHS")
+  if paths_str then
+    local paths = split_path(paths_str)
+    for _, path in ipairs(paths) do
+      local full_path = path .. "/" .. decoded
+      f = io.open(full_path, "rb")
+      if f then
+        f:close()
+        return full_path
+      end
+      -- also try backslash
+      local full_path_bs = path .. "\\" .. decoded
+      f = io.open(full_path_bs, "rb")
+      if f then
+        f:close()
+        return full_path_bs
+      end
+    end
+  end
+  return nil
+end
+
 local function get_png_dimensions(filepath)
   local file = io.open(filepath, "rb")
   if not file then return nil, nil end
@@ -741,31 +798,63 @@ local function get_png_dimensions(filepath)
   return w, h
 end
 
+local function get_svg_dimensions(filepath)
+  local file = io.open(filepath, "rb")
+  if not file then return nil, nil end
+  local content = file:read(4096)
+  file:close()
+  if not content then return nil, nil end
+  
+  local svg_tag = string.match(content, "<svg[^>]+>")
+  if not svg_tag then return nil, nil end
+  
+  local w = string.match(svg_tag, 'width%s*=%s*[\'"]%s*(%d+%.?%d*)%s*[a-zA-Z%%]*[\'"]')
+  local h = string.match(svg_tag, 'height%s*=%s*[\'"]%s*(%d+%.?%d*)%s*[a-zA-Z%%]*[\'"]')
+  if w and h then
+    return tonumber(w), tonumber(h)
+  end
+  
+  local vx1, vy1, vx2, vy2 = string.match(svg_tag, 'viewBox%s*=%s*[\'"]%s*(-?%d+%.?%d*)%s+(-?%d+%.?%d*)%s+(%d+%.?%d*)%s+(%d+%.?%d*)%s*[\'"]')
+  if vx2 and vy2 then
+    return tonumber(vx2), tonumber(vy2)
+  end
+  return nil, nil
+end
+
 function Image(el)
-  if string.match(el.src, "mermaid%-images") and string.match(el.src, "%.png$") then
-    local scale = tonumber(os.getenv("MERMAID_FILTER_SCALE")) or 1.0
-    if scale <= 0 then scale = 1.0 end
-    
-    local w, h = get_png_dimensions(el.src)
-    if w and h then
-      -- Safe default max bounds for standard A4 margin width (6.0 in) and height (8.5 in)
-      local max_width_in = 6.0
-      local max_height_in = 8.5
-      
-      local display_width_in = (w / scale) / 96.0
-      local display_height_in = (h / scale) / 96.0
-      
-      local scale_factor = 1.0
-      if display_width_in > max_width_in then
-        scale_factor = math.min(scale_factor, max_width_in / display_width_in)
-      end
-      if display_height_in > max_height_in then
-        scale_factor = math.min(scale_factor, max_height_in / display_height_in)
-      end
-      
-      el.attributes['width'] = string.format("%.2fin", display_width_in * scale_factor)
-      el.attributes['height'] = string.format("%.2fin", display_height_in * scale_factor)
+  local filepath = resolve_filepath(el.src)
+  if not filepath then return el end
+  
+  local w, h = nil, nil
+  if string.match(filepath:lower(), "%.png$") then
+    w, h = get_png_dimensions(filepath)
+  elseif string.match(filepath:lower(), "%.svg$") then
+    w, h = get_svg_dimensions(filepath)
+  end
+  
+  if w and h then
+    local scale = 1.0
+    if string.match(filepath, "mermaid%-images") then
+      scale = tonumber(os.getenv("MERMAID_FILTER_SCALE")) or 1.0
+      if scale <= 0 then scale = 1.0 end
     end
+    
+    local max_width_in = 6.0
+    local max_height_in = 8.5
+    
+    local display_width_in = (w / scale) / 96.0
+    local display_height_in = (h / scale) / 96.0
+    
+    local scale_factor = 1.0
+    if display_width_in > max_width_in then
+      scale_factor = math.min(scale_factor, max_width_in / display_width_in)
+    end
+    if display_height_in > max_height_in then
+      scale_factor = math.min(scale_factor, max_height_in / display_height_in)
+    end
+    
+    el.attributes['width'] = string.format("%.2fin", display_width_in * scale_factor)
+    el.attributes['height'] = string.format("%.2fin", display_height_in * scale_factor)
   end
   return el
 end
@@ -797,8 +886,6 @@ def _pandoc_command(project_root: Path, item: PlanItem, settings: ConvertSetting
         f"--resource-path={resource_path}",
     ]
     cmd.extend(_pandoc_format_args(project_root, item, settings))
-    if settings.output_format == "html":
-        cmd.append("--standalone")
     cmd.extend(settings.extra_pandoc_args)
     return cmd
 

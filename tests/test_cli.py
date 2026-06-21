@@ -41,7 +41,7 @@ class CliTests(unittest.TestCase):
                         "convert",
                         str(source),
                         "--format",
-                        "html",
+                        "docx",
                         "--toc",
                         "--toc-depth",
                         "2",
@@ -60,7 +60,7 @@ class CliTests(unittest.TestCase):
             root, sources, settings = run_conversions.call_args.args
             self.assertEqual(root, source.parent.resolve())
             self.assertEqual(sources, [source.resolve()])
-            self.assertEqual(settings.output_format, "html")
+            self.assertEqual(settings.output_format, "docx")
             self.assertTrue(settings.toc)
             self.assertEqual(settings.toc_depth, 2)
             self.assertEqual(settings.title, "Guide")

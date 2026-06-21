@@ -70,6 +70,8 @@ class ProjectState:
         self.scan_generation: int = 0
         self.scan_worker: threading.Thread | None = None
         self.kind: str = ""
+        self.conversion_active: bool = False
+
 
 
 class Md2DocApp(tk.Tk):
@@ -183,7 +185,7 @@ class Md2DocApp(tk.Tk):
         self.format_box = ttk.Combobox(
             controls,
             textvariable=self.format_var,
-            values=("docx", "html", "pdf"),
+            values=("docx",),
             state="readonly",
             width=8,
         )
@@ -304,6 +306,34 @@ class Md2DocApp(tk.Tk):
         if self.projects:
             self.project_list.selection_set(0)
             self._set_project(self.projects[0])
+        self._update_project_list_display()
+
+    def _update_project_list_display(self) -> None:
+        if not hasattr(self, "projects"):
+            return
+        self._updating_list_display = True
+        try:
+            selection = self.project_list.curselection()
+            selected_index = selection[0] if selection else None
+            
+            for i, project in enumerate(self.projects):
+                state = self._get_or_create_state(project.root)
+                if getattr(state, "conversion_active", False):
+                    display_name = f"{project.name} [Converting...]"
+                elif state.scan_active:
+                    display_name = f"{project.name} [Scanning...]"
+                else:
+                    display_name = project.name
+                
+                current_text = self.project_list.get(i)
+                if current_text != display_name:
+                    self.project_list.delete(i)
+                    self.project_list.insert(i, display_name)
+            
+            if selected_index is not None:
+                self.project_list.selection_set(selected_index)
+        finally:
+            self._updating_list_display = False
 
     def _new_project(self) -> None:
         kind = self._choose_project_kind()
@@ -336,7 +366,7 @@ class Md2DocApp(tk.Tk):
         kind_var = tk.StringVar(value=KIND_MD2DOC)
         ttk.Radiobutton(
             frame,
-            text="Markdown  ->  Word / HTML / PDF   (Pandoc)",
+            text="Markdown  ->  Word   (Pandoc)",
             variable=kind_var,
             value=KIND_MD2DOC,
         ).grid(row=1, column=0, sticky="w", pady=self._pad(2, 0))
@@ -385,6 +415,8 @@ class Md2DocApp(tk.Tk):
         self._load_projects()
 
     def _on_project_selected(self, _event: tk.Event) -> None:
+        if getattr(self, "_updating_list_display", False):
+            return
         selection = self.project_list.curselection()
         if not selection:
             return
@@ -486,7 +518,8 @@ class Md2DocApp(tk.Tk):
             self.format_var.set("pptx")
             self.tree.heading("file", text="Quarto Markdown")
         else:
-            self.format_box.configure(values=("docx", "html", "pdf"), state="readonly")
+            self.format_box.configure(values=("docx",), state="disabled")
+            self.format_var.set("docx")
             self.tree.heading("file", text="Markdown")
 
     def _settings(self) -> ConvertSettings:
@@ -539,6 +572,7 @@ class Md2DocApp(tk.Tk):
         self.progress_var.set(0)
         self.progress_bar.configure(mode="determinate", maximum=1)
         self._refresh_busy_state()
+        self._update_project_list_display()
 
         def work() -> None:
             try:
@@ -603,6 +637,8 @@ class Md2DocApp(tk.Tk):
                 skip_count,
                 project_kind,
             )
+        else:
+            self._update_project_list_display()
 
     def _insert_scan_batch(
         self,
@@ -642,6 +678,7 @@ class Md2DocApp(tk.Tk):
 
         self.status_var.set(f"Scanned {len(planned)} file(s): {convert_count} to convert, {skip_count} up to date")
         self._refresh_busy_state()
+        self._update_project_list_display()
 
     def _handle_scan_error(self, project_root: Path, generation: int, message: str) -> None:
         state = self._get_or_create_state(project_root)
@@ -660,6 +697,7 @@ class Md2DocApp(tk.Tk):
             self._refresh_busy_state()
             self._append_log(message)
             messagebox.showerror("Scan failed", message)
+        self._update_project_list_display()
 
     def _convert_selected(self) -> None:
         if self.scan_active:
@@ -717,8 +755,10 @@ class Md2DocApp(tk.Tk):
             state = self._get_or_create_state(project.root)
             state.status_text = status_text
             state.log_content += log_msg + "\n"
+            state.conversion_active = False
             self._save_project_state(project.root)
             self._refresh_busy_state()
+            self._update_project_list_display()
             return
         queued_sources = [item.source for item in queued]
         self.cancel_event.clear()
@@ -746,10 +786,12 @@ class Md2DocApp(tk.Tk):
         self._append_log(log_msg)
         state = self._get_or_create_state(project.root)
         state.log_content += log_msg + "\n"
+        state.conversion_active = True
         self._save_project_state(project.root)
         
         self.worker = threading.Thread(target=work, daemon=True)
         self._refresh_busy_state()
+        self._update_project_list_display()
         self.worker.start()
 
     def _cancel_conversion(self) -> None:
@@ -979,6 +1021,7 @@ class Md2DocApp(tk.Tk):
         )
         state.status_text = status_text
         state.log_content += log_msg + "\n"
+        state.conversion_active = False
 
         self.worker = None
         self._refresh_busy_state()
@@ -986,12 +1029,14 @@ class Md2DocApp(tk.Tk):
         if self.current_project and self.current_project.root.resolve() == project_root.resolve():
             self.status_var.set(status_text)
             self._append_log(log_msg)
+        self._update_project_list_display()
 
     def _handle_cancelled_event(self, project_root: Path) -> None:
         state = self._get_or_create_state(project_root)
         state.status_text = "Conversion cancelled"
         log_msg = "Conversion cancelled by user."
         state.log_content += log_msg + "\n"
+        state.conversion_active = False
         self._save_project_state(project_root)
 
         self.worker = None
@@ -1000,11 +1045,13 @@ class Md2DocApp(tk.Tk):
         if self.current_project and self.current_project.root.resolve() == project_root.resolve():
             self.status_var.set("Conversion cancelled")
             self._append_log(log_msg)
+        self._update_project_list_display()
 
     def _handle_error_event(self, project_root: Path, message: str) -> None:
         state = self._get_or_create_state(project_root)
         state.status_text = "Conversion failed"
         state.log_content += message + "\n"
+        state.conversion_active = False
 
         self.worker = None
         self._refresh_busy_state()
@@ -1013,6 +1060,7 @@ class Md2DocApp(tk.Tk):
             self.status_var.set("Conversion failed")
             self._append_log(message)
             messagebox.showerror("Conversion failed", message)
+        self._update_project_list_display()
 
     def _set_item_state(self, item: PlanItem, state: str, reason: str, tag: str) -> None:
         iid = self.iid_by_source.get(str(item.source))

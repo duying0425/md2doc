@@ -673,5 +673,99 @@ class Qmd2PptConverterTests(unittest.TestCase):
         self.assertEqual([check.name for check in checks], ["Quarto"])
 
 
+class LuaFilterTests(unittest.TestCase):
+    def test_png_scaling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # Write a PNG with width 1920, height 1080 (aspect ratio 16:9)
+            # At 96 DPI, display size is 1920/96 = 20 in, 1080/96 = 11.25 in.
+            # Max width is 6.0 in, max height is 8.5 in.
+            # 20 in exceeds 6.0 in. Scale factor = 6.0 / 20.0 = 0.3.
+            # Height = 11.25 * 0.3 = 3.375 in (which fits <= 8.5 in).
+            # So width should be scaled to 6.00in, height to 3.38in.
+            png_path = root / "large.png"
+            png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + (1920).to_bytes(4, 'big') + (1080).to_bytes(4, 'big')
+            png_path.write_bytes(png_bytes)
+
+            from md2doc.converter import _ensure_mermaid_fit_lua
+            lua_path = _ensure_mermaid_fit_lua(root)
+
+            md_path = root / "input.md"
+            md_path.write_text("![image](large.png)", encoding="utf-8")
+
+            cmd = [
+                "pandoc",
+                str(md_path),
+                "--lua-filter",
+                str(lua_path),
+                "-t",
+                "html"
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(root))
+            self.assertEqual(res.returncode, 0)
+            self.assertIn('style="width:6in;height:3.38in"', res.stdout)
+
+    def test_svg_viewbox_scaling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # SVG with viewBox 0 0 1000 2000 (aspect ratio 1:2, very tall image)
+            # Display width: 1000/96 = 10.42 in. Display height: 2000/96 = 20.83 in.
+            # Height exceeds 8.5 in. Scale factor = 8.5 / 20.83 = 0.408.
+            # Width = 10.42 * 0.408 = 4.25 in.
+            # So width should be scaled to 4.25in, height to 8.50in.
+            svg_path = root / "tall.svg"
+            svg_path.write_text('<svg viewBox="0 0 1000 2000"></svg>', encoding="utf-8")
+
+            from md2doc.converter import _ensure_mermaid_fit_lua
+            lua_path = _ensure_mermaid_fit_lua(root)
+
+            md_path = root / "input.md"
+            md_path.write_text("![image](tall.svg)", encoding="utf-8")
+
+            cmd = [
+                "pandoc",
+                str(md_path),
+                "--lua-filter",
+                str(lua_path),
+                "-t",
+                "html"
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(root))
+            self.assertEqual(res.returncode, 0)
+            self.assertIn('style="width:4.25in;height:8.5in"', res.stdout)
+
+    def test_url_decoding_and_resource_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            
+            sub = root / "sub dir"
+            sub.mkdir()
+            
+            png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + (96).to_bytes(4, 'big') + (96).to_bytes(4, 'big')
+            (sub / "image file.png").write_bytes(png_bytes)
+
+            from md2doc.converter import _ensure_mermaid_fit_lua
+            lua_path = _ensure_mermaid_fit_lua(root)
+
+            md_path = root / "input.md"
+            md_path.write_text("![image](image%20file.png)", encoding="utf-8")
+
+            cmd = [
+                "pandoc",
+                str(md_path),
+                "--lua-filter",
+                str(lua_path),
+                "-t",
+                "html"
+            ]
+            
+            env = os.environ.copy()
+            env["MD2DOC_RESOURCE_PATHS"] = str(sub)
+            
+            res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(root), env=env)
+            self.assertEqual(res.returncode, 0)
+            self.assertIn('style="width:1in;height:1in"', res.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

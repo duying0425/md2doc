@@ -24,7 +24,7 @@ MARKDOWN_SUFFIXES = {".md", ".markdown"}
 OFFICE_SUFFIXES = {".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls"}
 QMD_SUFFIXES = {".qmd"}
 SOURCE_SUFFIXES = MARKDOWN_SUFFIXES | OFFICE_SUFFIXES | QMD_SUFFIXES
-OUTPUT_FORMATS = ("docx", "html", "pdf")
+OUTPUT_FORMATS = ("docx",)
 
 
 class CliUsageError(ValueError):
@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="md2doc",
         description=(
-            "Convert Markdown to DOCX/HTML/PDF with Pandoc, or convert Word/PPT/Excel "
+            "Convert Markdown to DOCX with Pandoc, or convert Word/PPT/Excel "
             "to Markdown with MarkItDown."
         ),
     )
