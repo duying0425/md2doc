@@ -225,6 +225,7 @@ class ProjectRegistry:
                 continue
             if project.root.exists():
                 projects.append(project)
+        projects.sort(key=lambda p: (p.name.lower(), str(p.root).lower()))
         return projects
 
     def add(self, config: ProjectConfig) -> None:

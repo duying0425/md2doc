@@ -69,5 +69,34 @@ class ProjectKindTests(unittest.TestCase):
             self.assertEqual(cleaned["kind"], KIND_MD2DOC)
 
 
+class ProjectRegistryTests(unittest.TestCase):
+    def test_list_returns_sorted_projects_alphabetically(self) -> None:
+        from md2doc.project import ProjectRegistry, ProjectConfig
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            registry_file = tmp_path / "projects.json"
+            registry = ProjectRegistry(registry_file)
+            
+            p_c = ProjectConfig(name="C Project", root=tmp_path / "c")
+            p_a = ProjectConfig(name="a Project", root=tmp_path / "a")
+            p_b = ProjectConfig(name="B Project", root=tmp_path / "b")
+            
+            # Create subdirectories to satisfy root.exists() check in registry.list()
+            (tmp_path / "c").mkdir()
+            (tmp_path / "a").mkdir()
+            (tmp_path / "b").mkdir()
+            
+            # Save in custom order
+            registry._save([p_c, p_a, p_b])
+            
+            # Fetch list, should be sorted alphabetically case-insensitively: a Project -> B Project -> C Project
+            listed = registry.list()
+            self.assertEqual(len(listed), 3)
+            self.assertEqual(listed[0].name, "a Project")
+            self.assertEqual(listed[1].name, "B Project")
+            self.assertEqual(listed[2].name, "C Project")
+
+
 if __name__ == "__main__":
     unittest.main()
+
