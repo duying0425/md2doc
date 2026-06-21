@@ -47,6 +47,7 @@ from .project import (
     create_project,
     load_project,
 )
+from . import __version__
 
 
 SCAN_TABLE_BATCH_SIZE = 250
@@ -137,6 +138,28 @@ class Md2DocApp(tk.Tk):
             sticky="ew",
             padx=self._pad(4, 0),
         )
+
+        try:
+            from .build_info import BUILD_TIME
+        except ImportError:
+            BUILD_TIME = "N/A"
+
+        info_frame = ttk.Frame(sidebar)
+        info_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=self._pad(12, 0))
+
+        ttk.Label(
+            info_frame,
+            text=f"Version: {__version__}",
+            foreground="#666666",
+            font=self.mono_font,
+        ).grid(row=0, column=0, sticky="w")
+
+        ttk.Label(
+            info_frame,
+            text=f"Build: {BUILD_TIME}",
+            foreground="#666666",
+            font=self.mono_font,
+        ).grid(row=1, column=0, sticky="w")
 
         main = ttk.Frame(self, padding=self._pad(0, 10, 10, 10))
         main.grid(row=0, column=1, sticky="nsew")

@@ -15,6 +15,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller is not installed for '$Python'. Run: $Python -m pip install -e .[build]"
 }
 
+$BuildInfoPath = Join-Path $Root "src\md2doc\build_info.py"
+Write-Host "Generating build_info.py at: $BuildInfoPath"
+$BuildTime = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz')
+$BuildInfoContent = "BUILD_TIME = `"$BuildTime`"`n"
+[System.IO.File]::WriteAllText($BuildInfoPath, $BuildInfoContent)
+
 $windowMode = if ($Console) { "--console" } else { "--windowed" }
 
 & $Python -m PyInstaller `
