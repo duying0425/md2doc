@@ -94,6 +94,7 @@ class ConvertSettings:
     mermaid_format: str = "png"
     mermaid_theme: str = "default"
     mermaid_background: str = "white"
+    mermaid_scale: float = 0.0
 
     def output_suffix(self) -> str:
         if self.kind == KIND_DOC2MD:
@@ -199,6 +200,7 @@ def settings_from_project(config: ProjectConfig, *, force: bool = False) -> Conv
         mermaid_format=config.mermaid_format,
         mermaid_theme=config.mermaid_theme,
         mermaid_background=config.mermaid_background,
+        mermaid_scale=config.mermaid_scale,
     )
 
 
@@ -447,6 +449,7 @@ def settings_signature(settings: ConvertSettings, project_root: Path | None = No
         "mermaid_format": settings.mermaid_format,
         "mermaid_theme": settings.mermaid_theme,
         "mermaid_background": settings.mermaid_background,
+        "mermaid_scale": settings.mermaid_scale,
     }
     encoded = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -615,10 +618,62 @@ def _markitdown_command(item: PlanItem, settings: ConvertSettings) -> list[str]:
     ]
 
 
+LUA_FILTER_CONTENT = """-- mermaid-fit.lua
+local function get_png_dimensions(filepath)
+  local file = io.open(filepath, "rb")
+  if not file then return nil, nil end
+  file:seek("set", 16)
+  local bytes = file:read(8)
+  file:close()
+  if not bytes or #bytes < 8 then return nil, nil end
+  local w = bytes:byte(1) * 16777216 + bytes:byte(2) * 65536 + bytes:byte(3) * 256 + bytes:byte(4)
+  local h = bytes:byte(5) * 16777216 + bytes:byte(6) * 65536 + bytes:byte(7) * 256 + bytes:byte(8)
+  return w, h
+end
+
+function Image(el)
+  if string.match(el.src, "mermaid%-images") and string.match(el.src, "%.png$") then
+    local scale = tonumber(os.getenv("MERMAID_FILTER_SCALE")) or 1.0
+    if scale <= 0 then scale = 1.0 end
+    
+    local w, h = get_png_dimensions(el.src)
+    if w and h then
+      -- Safe default max bounds for standard A4 margin width (6.0 in) and height (8.5 in)
+      local max_width_in = 6.0
+      local max_height_in = 8.5
+      
+      local display_width_in = (w / scale) / 96.0
+      local display_height_in = (h / scale) / 96.0
+      
+      local scale_factor = 1.0
+      if display_width_in > max_width_in then
+        scale_factor = math.min(scale_factor, max_width_in / display_width_in)
+      end
+      if display_height_in > max_height_in then
+        scale_factor = math.min(scale_factor, max_height_in / display_height_in)
+      end
+      
+      el.attributes['width'] = string.format("%.2fin", display_width_in * scale_factor)
+      el.attributes['height'] = string.format("%.2fin", display_height_in * scale_factor)
+    end
+  end
+  return el
+end
+"""
+
+def _ensure_mermaid_fit_lua(project_root: Path) -> Path:
+    meta_dir = project_root / PROJECT_DIR_NAME
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    lua_path = meta_dir / "mermaid-fit.lua"
+    lua_path.write_text(LUA_FILTER_CONTENT, encoding="utf-8")
+    return lua_path
+
+
 def _pandoc_command(project_root: Path, item: PlanItem, settings: ConvertSettings) -> list[str]:
     resource_path = os.pathsep.join([str(item.source.parent), str(project_root)])
     pandoc_cmd = _resolve_command(settings.pandoc_cmd)
     mermaid_filter_cmd = _resolve_command(settings.mermaid_filter_cmd)
+    lua_filter_path = _ensure_mermaid_fit_lua(project_root)
     cmd = [
         pandoc_cmd[0],
         *pandoc_cmd[1:],
@@ -628,6 +683,7 @@ def _pandoc_command(project_root: Path, item: PlanItem, settings: ConvertSetting
         "--filter",
         mermaid_filter_cmd[0],
         *mermaid_filter_cmd[1:],
+        f"--lua-filter={lua_filter_path}",
         f"--resource-path={resource_path}",
     ]
     cmd.extend(_pandoc_format_args(project_root, item, settings))
@@ -661,11 +717,14 @@ def _pandoc_format_args(project_root: Path, item: PlanItem, settings: ConvertSet
 
 
 def _mermaid_environment(settings: ConvertSettings) -> dict[str, str]:
-    return {
+    env = {
         "MERMAID_FILTER_FORMAT": settings.mermaid_format or "png",
         "MERMAID_FILTER_THEME": settings.mermaid_theme or "default",
         "MERMAID_FILTER_BACKGROUND": settings.mermaid_background or "white",
     }
+    if settings.mermaid_scale > 0:
+        env["MERMAID_FILTER_SCALE"] = str(settings.mermaid_scale)
+    return env
 
 
 def _validate_settings(project_root: Path, settings: ConvertSettings) -> None:

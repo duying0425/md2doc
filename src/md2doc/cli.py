@@ -163,6 +163,7 @@ def _add_conversion_arguments(parser: argparse.ArgumentParser, *, dry_run: bool)
     parser.add_argument("--mermaid-format", choices=("png", "svg", "pdf"), default=None)
     parser.add_argument("--mermaid-theme", default=None)
     parser.add_argument("--mermaid-background", default=None)
+    parser.add_argument("--mermaid-scale", type=float, default=None)
     parser.add_argument("--pandoc", dest="pandoc_cmd", default=None)
     parser.add_argument("--mermaid-filter", dest="mermaid_filter_cmd", default=None)
     parser.add_argument(
@@ -286,6 +287,7 @@ def _settings_from_args(config: ProjectConfig, args: argparse.Namespace) -> Conv
         "mermaid_format",
         "mermaid_theme",
         "mermaid_background",
+        "mermaid_scale",
         "pandoc_cmd",
         "mermaid_filter_cmd",
     ):

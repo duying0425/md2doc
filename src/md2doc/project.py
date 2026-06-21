@@ -64,6 +64,7 @@ class ProjectConfig:
     mermaid_format: str = "png"
     mermaid_theme: str = "default"
     mermaid_background: str = "white"
+    mermaid_scale: float = 0.0
 
     @property
     def meta_dir(self) -> Path:
@@ -104,6 +105,7 @@ class ProjectConfig:
             "mermaid_format": self.mermaid_format,
             "mermaid_theme": self.mermaid_theme,
             "mermaid_background": self.mermaid_background,
+            "mermaid_scale": self.mermaid_scale,
         }
 
     @classmethod
@@ -140,6 +142,7 @@ class ProjectConfig:
             mermaid_format=str(data.get("mermaid_format") or "png"),
             mermaid_theme=str(data.get("mermaid_theme") or "default"),
             mermaid_background=str(data.get("mermaid_background") or "white"),
+            mermaid_scale=float(data.get("mermaid_scale") or 0.0),
         )
 
     def save(self) -> None:

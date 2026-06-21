@@ -232,6 +232,7 @@ class ConverterTests(unittest.TestCase):
                 mermaid_format="svg",
                 mermaid_theme="forest",
                 mermaid_background="transparent",
+                mermaid_scale=2.5,
             )
 
             loaded = ProjectConfig.from_dict(project.to_dict())
@@ -243,6 +244,7 @@ class ConverterTests(unittest.TestCase):
             self.assertEqual(settings.reference_docx, str(root / "reference.docx"))
             self.assertEqual(settings.table_borders, "bordered")
             self.assertEqual(settings.mermaid_format, "svg")
+            self.assertEqual(settings.mermaid_scale, 2.5)
 
     def test_settings_signature_resolves_reference_docx_relative_to_project_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -283,6 +285,7 @@ class ConverterTests(unittest.TestCase):
             self.assertIn("author=Team", cmd)
             self.assertIn("--reference-doc", cmd)
             self.assertIn(str(reference), cmd)
+            self.assertTrue(any(arg.startswith("--lua-filter=") for arg in cmd))
 
     def test_mermaid_environment_uses_rendering_options(self) -> None:
         env = _mermaid_environment(
@@ -303,6 +306,15 @@ class ConverterTests(unittest.TestCase):
         self.assertNotIn("MERMAID_FILTER_WIDTH", env)
         self.assertNotIn("MERMAID_FILTER_SCALE", env)
         self.assertEqual(env["MERMAID_FILTER_FORMAT"], "png")
+
+    def test_mermaid_environment_uses_custom_scale(self) -> None:
+        env = _mermaid_environment(
+            ConvertSettings(
+                mermaid_scale=2.5,
+            )
+        )
+
+        self.assertEqual(env["MERMAID_FILTER_SCALE"], "2.5")
 
     def test_docx_image_paragraphs_are_centered(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

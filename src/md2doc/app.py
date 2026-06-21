@@ -220,7 +220,7 @@ class Md2DocApp(tk.Tk):
         self.tree.column("state", width=self._px(118), anchor="w", stretch=False)
         self.tree.column("file", width=self._px(430), anchor="w")
         self.tree.column("reason", width=self._px(260), anchor="w")
-        self.tree.tag_configure("skip", foreground="#555", background="#f4f5f7", font=self.state_font)
+        self.tree.tag_configure("skip", foreground="#2e7d32", background="#f0f7f4", font=self.state_font)
         self.tree.tag_configure("convert", foreground="#6f4e00", background="#fff3c4", font=self.state_font)
         self.tree.tag_configure("queued", foreground="#444", background="#eef1f5", font=self.state_font)
         self.tree.tag_configure("running", foreground="#0b5cad", background="#e6f2ff", font=self.state_font)
@@ -553,7 +553,7 @@ class Md2DocApp(tk.Tk):
         convert_count = sum(1 for item in planned if item.action == "convert")
         skip_count = len(planned) - convert_count
 
-        status_text = f"Scanned {len(planned)} file(s): {convert_count} to convert, {skip_count} skipped"
+        status_text = f"Scanned {len(planned)} file(s): {convert_count} to convert, {skip_count} up to date"
         log_msg = f"Scanned {len(planned)} {_input_label(project_kind)} file(s)."
         state.status_text = status_text
         state.log_content += log_msg + "\n"
@@ -612,7 +612,7 @@ class Md2DocApp(tk.Tk):
             )
             return
 
-        self.status_var.set(f"Scanned {len(planned)} file(s): {convert_count} to convert, {skip_count} skipped")
+        self.status_var.set(f"Scanned {len(planned)} file(s): {convert_count} to convert, {skip_count} up to date")
         self._refresh_busy_state()
 
     def _handle_scan_error(self, project_root: Path, generation: int, message: str) -> None:
@@ -678,11 +678,11 @@ class Md2DocApp(tk.Tk):
         if not queued:
             status_text = (
                 f"Finished: {self.converted_count} converted, "
-                f"{self.skipped_count} skipped, {self.failed_count} failed"
+                f"{self.skipped_count} up to date, {self.failed_count} failed"
             )
             log_msg = (
                 f"Finished: {self.converted_count} converted, "
-                f"{self.skipped_count} skipped, {self.failed_count} failed."
+                f"{self.skipped_count} up to date, {self.failed_count} failed."
             )
             self.status_var.set(status_text)
             self._append_log(log_msg)
@@ -728,9 +728,9 @@ class Md2DocApp(tk.Tk):
         self.progress_var.set(self.conversion_done)
         self.status_var.set(
             f"Progress {self.conversion_done}/{self.conversion_total}: "
-            f"{self.converted_count} converted, {self.skipped_count} skipped, {self.failed_count} failed"
+            f"{self.converted_count} converted, {self.skipped_count} up to date, {self.failed_count} failed"
         )
-        self._append_log(f"Skipped {len(items)} file(s) already up to date.")
+        self._append_log(f"{len(items)} file(s) already up to date.")
 
     def _check_tools(self) -> None:
         checks = check_dependencies(self._settings())
@@ -908,7 +908,7 @@ class Md2DocApp(tk.Tk):
 
         status_text = (
             f"Progress {state.conversion_done}/{state.conversion_total}: "
-            f"{state.converted_count} converted, {state.skipped_count} skipped, {state.failed_count} failed"
+            f"{state.converted_count} converted, {state.skipped_count} up to date, {state.failed_count} failed"
         )
         log_msg = f"{result.status}: {result.item.relative_source} - {result.message}"
         state.status_text = status_text
@@ -929,11 +929,11 @@ class Md2DocApp(tk.Tk):
         state = self._get_or_create_state(project_root)
         status_text = (
             f"Finished: {state.converted_count} converted, "
-            f"{state.skipped_count} skipped, {state.failed_count} failed"
+            f"{state.skipped_count} up to date, {state.failed_count} failed"
         )
         log_msg = (
             f"Finished: {state.converted_count} converted, "
-            f"{state.skipped_count} skipped, {state.failed_count} failed."
+            f"{state.skipped_count} up to date, {state.failed_count} failed."
         )
         state.status_text = status_text
         state.log_content += log_msg + "\n"
@@ -1029,6 +1029,7 @@ class SettingsDialog(tk.Toplevel):
         self.mermaid_format_var = tk.StringVar(value=project.mermaid_format)
         self.mermaid_theme_var = tk.StringVar(value=project.mermaid_theme)
         self.mermaid_background_var = tk.StringVar(value=project.mermaid_background)
+        self.mermaid_scale_var = tk.StringVar(value=str(project.mermaid_scale or ""))
 
         self._build()
         self._center()
@@ -1142,6 +1143,7 @@ class SettingsDialog(tk.Toplevel):
         fields = [
             ("Theme", self.mermaid_theme_var),
             ("Background", self.mermaid_background_var),
+            ("Scale", self.mermaid_scale_var),
         ]
         for row, (label, variable) in enumerate(fields):
             ttk.Label(frame, text=label).grid(row=row, column=0, sticky="w", pady=self.parent._pad(4, 0))
@@ -1152,14 +1154,14 @@ class SettingsDialog(tk.Toplevel):
                 pady=self.parent._pad(4, 0),
             )
 
-        ttk.Label(frame, text="Format").grid(row=2, column=0, sticky="w", pady=self.parent._pad(8, 0))
+        ttk.Label(frame, text="Format").grid(row=3, column=0, sticky="w", pady=self.parent._pad(8, 0))
         ttk.Combobox(
             frame,
             textvariable=self.mermaid_format_var,
             values=("png", "svg", "pdf"),
             state="readonly",
             width=10,
-        ).grid(row=2, column=1, sticky="w", pady=self.parent._pad(8, 0))
+        ).grid(row=3, column=1, sticky="w", pady=self.parent._pad(8, 0))
 
     def _build_advanced_tab(self, frame: ttk.Frame) -> None:
         frame.columnconfigure(0, weight=1)
@@ -1195,6 +1197,7 @@ class SettingsDialog(tk.Toplevel):
         self.mermaid_format_var.set(defaults.mermaid_format)
         self.mermaid_theme_var.set(defaults.mermaid_theme)
         self.mermaid_background_var.set(defaults.mermaid_background)
+        self.mermaid_scale_var.set(str(defaults.mermaid_scale or ""))
         self.extra_args_text.delete("1.0", tk.END)
         self.extra_args_text.insert("1.0", " ".join(defaults.extra_pandoc_args))
 
@@ -1207,6 +1210,13 @@ class SettingsDialog(tk.Toplevel):
                 "Font size",
                 minimum=0,
                 maximum=72,
+                allow_empty=True,
+            )
+            mermaid_scale = _parse_float(
+                self.mermaid_scale_var.get(),
+                "Mermaid scale",
+                minimum=0.0,
+                maximum=10.0,
                 allow_empty=True,
             )
         except ValueError as exc:
@@ -1226,6 +1236,7 @@ class SettingsDialog(tk.Toplevel):
         self.project.mermaid_format = self.mermaid_format_var.get()
         self.project.mermaid_theme = self.mermaid_theme_var.get().strip() or "default"
         self.project.mermaid_background = self.mermaid_background_var.get().strip() or "white"
+        self.project.mermaid_scale = mermaid_scale
         self.project.extra_pandoc_args = extra_args
         self.project.save()
         ProjectRegistry().add(self.project)
@@ -1383,12 +1394,12 @@ def _input_label(kind: str) -> str:
 
 def _state_label(action: str) -> str:
     return {
-        "convert": "[CONVERT]",
-        "skip": "[SKIP]",
+        "convert": "[TO CONVERT]",
+        "skip": "[UP TO DATE]",
         "queued": "[QUEUED]",
         "running": "[RUNNING]",
         "done": "[DONE]",
-        "skipped": "[SKIPPED]",
+        "skipped": "[UP TO DATE]",
         "failed": "[FAILED]",
     }.get(action, action)
 
@@ -1400,7 +1411,7 @@ def _reason_label(reason: str) -> str:
         "no history and source is newer": "Source is newer than output",
         "source changed": "Markdown changed",
         "conversion settings changed": "Conversion settings changed",
-        "unchanged": "Unchanged since last conversion",
+        "unchanged": "Output is up to date",
         "forced": "Force conversion enabled",
         "skip disabled": "Smart skip disabled",
     }.get(reason, reason)
@@ -1427,6 +1438,28 @@ def _parse_int(
         parsed = int(value)
     except ValueError as exc:
         raise ValueError(f"{label} must be a whole number.") from exc
+    if minimum is not None and parsed < minimum:
+        raise ValueError(f"{label} must be at least {minimum}.")
+    if maximum is not None and parsed > maximum:
+        raise ValueError(f"{label} must be at most {maximum}.")
+    return parsed
+
+
+def _parse_float(
+    value: str,
+    label: str,
+    *,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    allow_empty: bool = False,
+) -> float:
+    value = value.strip()
+    if not value and allow_empty:
+        return 0.0
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise ValueError(f"{label} must be a number.") from exc
     if minimum is not None and parsed < minimum:
         raise ValueError(f"{label} must be at least {minimum}.")
     if maximum is not None and parsed > maximum:
