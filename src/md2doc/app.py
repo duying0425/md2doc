@@ -263,6 +263,16 @@ class Md2DocApp(tk.Tk):
         scrollbar.grid(row=2, column=1, sticky="ns")
         self.tree.configure(yscrollcommand=scrollbar.set)
 
+        # Context menu for file list
+        self.context_menu = tk.Menu(self, tearoff=0)
+        self.context_menu.add_command(label="打开文件", command=self._menu_open_source_file)
+        self.context_menu.add_command(label="打开文件所在目录", command=self._menu_open_source_dir)
+        self.context_menu.add_command(label="打开转换完成的文件", command=self._menu_open_output_file)
+
+        # Bind mouse events to the Treeview
+        self.tree.bind("<Button-3>", self._on_tree_right_click)
+        self.tree.bind("<Double-1>", self._on_tree_double_click)
+
         self.log = tk.Text(main, height=8, wrap="word")
         self.log.configure(font=self.mono_font, padx=self._px(6), pady=self._px(4), spacing1=self._px(1))
         self.log.grid(row=5, column=0, columnspan=2, sticky="ew", pady=self._pad(8, 0))
@@ -897,6 +907,88 @@ class Md2DocApp(tk.Tk):
             os.startfile(output_dir)
         except Exception as exc:
             messagebox.showerror("Open output", str(exc))
+
+    def _open_file_path(self, path: Path) -> None:
+        try:
+            os.startfile(path)
+        except Exception as exc:
+            messagebox.showerror("Error", f"Failed to open {path.name}: {exc}")
+
+    def _open_containing_dir(self, path: Path) -> None:
+        try:
+            import subprocess
+            # Highlight the file in Explorer
+            subprocess.run(['explorer', '/select,', os.path.normpath(path)], check=True)
+        except Exception:
+            try:
+                os.startfile(path.parent)
+            except Exception as exc:
+                messagebox.showerror("Error", f"Failed to open directory: {exc}")
+
+    def _menu_open_source_file(self) -> None:
+        selection = self.tree.selection()
+        for iid in selection:
+            item = self.plan_by_id.get(iid)
+            if item and item.source.exists():
+                self._open_file_path(item.source)
+
+    def _menu_open_source_dir(self) -> None:
+        selection = self.tree.selection()
+        for iid in selection:
+            item = self.plan_by_id.get(iid)
+            if item and item.source.exists():
+                self._open_containing_dir(item.source)
+
+    def _menu_open_output_file(self) -> None:
+        selection = self.tree.selection()
+        for iid in selection:
+            item = self.plan_by_id.get(iid)
+            if item and item.output.exists():
+                self._open_file_path(item.output)
+
+    def _on_tree_right_click(self, event: tk.Event) -> None:
+        iid = self.tree.identify_row(event.y)
+        if iid:
+            if iid not in self.tree.selection():
+                self.tree.selection_set(iid)
+            self._update_context_menu_state()
+            self.context_menu.post(event.x_root, event.y_root)
+
+    def _update_context_menu_state(self) -> None:
+        selection = self.tree.selection()
+        if not selection:
+            self.context_menu.entryconfigure("打开文件", state="disabled")
+            self.context_menu.entryconfigure("打开文件所在目录", state="disabled")
+            self.context_menu.entryconfigure("打开转换完成的文件", state="disabled")
+            return
+
+        self.context_menu.entryconfigure("打开文件", state="normal")
+        self.context_menu.entryconfigure("打开文件所在目录", state="normal")
+
+        any_output_exists = False
+        for iid in selection:
+            item = self.plan_by_id.get(iid)
+            if item and item.output.exists():
+                any_output_exists = True
+                break
+
+        if any_output_exists:
+            self.context_menu.entryconfigure("打开转换完成的文件", state="normal")
+        else:
+            self.context_menu.entryconfigure("打开转换完成的文件", state="disabled")
+
+    def _on_tree_double_click(self, event: tk.Event) -> None:
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return
+        item = self.plan_by_id.get(iid)
+        if not item:
+            return
+        
+        if item.output.exists():
+            self._open_file_path(item.output)
+        elif item.source.exists():
+            self._open_file_path(item.source)
 
     def _poll_events(self) -> None:
         while True:
