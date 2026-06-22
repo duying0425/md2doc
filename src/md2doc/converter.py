@@ -676,7 +676,6 @@ def _render_html_to_single_page_pdf(
             page.emulate_media(media="screen")
             page.goto(source.as_uri(), wait_until="load", timeout=60000)
             _wait_for_html_render_ready(page)
-            _ensure_html_pdf_default_background(page)
             width_px, height_px = _measure_html_render_size(page)
             if cancel_event is not None and cancel_event.is_set():
                 raise ConversionCancelledError("Conversion cancelled by user")
@@ -749,17 +748,6 @@ def _wait_for_html_render_ready(page) -> None:
               image.addEventListener('error', resolve, { once: true });
             });
           }));
-        }
-        """
-    )
-
-
-def _ensure_html_pdf_default_background(page) -> None:
-    page.add_style_tag(
-        content="""
-        :where(html),
-        :where(body) {
-          background-color: #ffffff;
         }
         """
     )

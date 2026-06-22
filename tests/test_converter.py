@@ -15,7 +15,6 @@ from md2doc.converter import (
     ConvertSettings,
     DependencyCheck,
     _center_docx_images,
-    _ensure_html_pdf_default_background,
     _ensure_generated_reference_docx,
     _markitdown_command,
     _mermaid_environment,
@@ -807,22 +806,6 @@ class Html2PdfConverterTests(unittest.TestCase):
             self.assertEqual(results[0].item.output, root / "poster.pdf")
             self.assertTrue((root / "poster.pdf").exists())
             render.assert_called_once()
-
-    def test_default_background_css_uses_low_specificity_white(self) -> None:
-        class FakePage:
-            def __init__(self) -> None:
-                self.content = ""
-
-            def add_style_tag(self, *, content: str) -> None:
-                self.content = content
-
-        page = FakePage()
-
-        _ensure_html_pdf_default_background(page)
-
-        self.assertIn(":where(html)", page.content)
-        self.assertIn("background-color: #ffffff", page.content)
-
 
 class LuaFilterTests(unittest.TestCase):
     def test_png_scaling(self) -> None:
