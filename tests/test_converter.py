@@ -501,6 +501,48 @@ class ConverterTests(unittest.TestCase):
             self.assertEqual([result.status for result in results], ["converted"])
             self.assertFalse((root / "mermaid-filter.err").exists())
 
+    def test_run_conversions_sets_mermaid_filter_loc_to_local_image_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "a.md"
+            output_dir = root / "output"
+            fake_pandoc = root / "fake_pandoc.py"
+            source.write_text("# A", encoding="utf-8")
+            fake_pandoc.write_text(
+                "\n".join(
+                    [
+                        "from pathlib import Path",
+                        "import os",
+                        "import sys",
+                        "import zipfile",
+                        "if '--version' in sys.argv:",
+                        "    print('fake pandoc 1.0')",
+                        "    raise SystemExit(0)",
+                        "Path('loc.txt').write_text(os.environ.get('MERMAID_FILTER_LOC', ''), encoding='utf-8')",
+                        "output = Path(sys.argv[sys.argv.index('-o') + 1])",
+                        "output.parent.mkdir(parents=True, exist_ok=True)",
+                        "with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as docx:",
+                        "    docx.writestr('word/document.xml', '<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body/></w:document>')",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            results = run_conversions(
+                root,
+                [source],
+                ConvertSettings(
+                    output_dir=output_dir,
+                    pandoc_cmd=f"python {fake_pandoc}",
+                    mermaid_filter_cmd="python",
+                ),
+            )
+
+            self.assertEqual([result.status for result in results], ["converted"])
+            mermaid_loc = Path((root / "loc.txt").read_text(encoding="utf-8"))
+            self.assertEqual(mermaid_loc.parent, root / ".md2doc" / "mermaid-images")
+            self.assertTrue(mermaid_loc.is_dir())
+
     def test_run_conversions_keeps_nonempty_mermaid_filter_error_log_on_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -48,6 +48,8 @@ MANIFEST_NAME = "manifest.json"
 GENERATED_REFERENCE_DOCX = "generated-reference.docx"
 GENERATED_REFERENCE_META = "generated-reference.json"
 MERMAID_FILTER_ERR_NAME = "mermaid-filter.err"
+MERMAID_IMAGE_DIR_NAME = "mermaid-images"
+MERMAID_IMAGE_LOCATION_SIGNATURE = "metadata-mermaid-images-v1"
 WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 W = f"{{{WORD_NS}}}"
 ET.register_namespace("w", WORD_NS)
@@ -476,6 +478,7 @@ def settings_signature(settings: ConvertSettings, project_root: Path | None = No
         "mermaid_theme": settings.mermaid_theme,
         "mermaid_background": settings.mermaid_background,
         "mermaid_scale": settings.mermaid_scale,
+        "mermaid_image_location": MERMAID_IMAGE_LOCATION_SIGNATURE,
     }
     encoded = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -599,6 +602,7 @@ def _run_one(
     cmd = _pandoc_command(project_root, item, settings)
     env = os.environ.copy()
     env.update(_mermaid_environment(settings))
+    env["MERMAID_FILTER_LOC"] = str(_ensure_mermaid_image_dir(project_root, item))
     env["MD2DOC_RESOURCE_PATHS"] = os.pathsep.join([str(item.source.parent), str(project_root)])
     mermaid_error_path = _reset_mermaid_filter_error_log(item.source.parent)
     completed = _run_subprocess_with_cancel(
@@ -958,6 +962,13 @@ def _reset_mermaid_filter_error_log(source_dir: Path) -> Path:
     err_path = source_dir / MERMAID_FILTER_ERR_NAME
     _remove_file(err_path)
     return err_path
+
+
+def _ensure_mermaid_image_dir(project_root: Path, item: PlanItem) -> Path:
+    image_key = hashlib.sha256(item.relative_source.encode("utf-8")).hexdigest()[:16]
+    image_dir = project_root / PROJECT_DIR_NAME / MERMAID_IMAGE_DIR_NAME / image_key
+    image_dir.mkdir(parents=True, exist_ok=True)
+    return image_dir
 
 
 def _mermaid_filter_error_text(err_path: Path) -> str:
