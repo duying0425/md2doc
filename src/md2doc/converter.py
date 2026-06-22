@@ -1392,6 +1392,15 @@ def _run_quarto(
     import uuid
     temp_filename = f"qmd2ppt_temp_{uuid.uuid4().hex}.pptx"
     temp_path = item.source.parent / temp_filename
+
+    missing_reference_message = _missing_quarto_reference_doc_message(item.source)
+    if missing_reference_message:
+        return ConversionResult(
+            item=item,
+            status="failed",
+            message=missing_reference_message,
+            returncode=1,
+        )
     
     quarto_cmd = _resolve_command(settings.quarto_cmd)
     cmd = [
@@ -1444,6 +1453,91 @@ def _run_quarto(
         message=message,
         returncode=completed.returncode or 1,
     )
+
+
+def _missing_quarto_reference_doc_message(qmd_path: Path) -> str:
+    missing: list[tuple[str, Path]] = []
+    for reference_doc in _quarto_reference_docs(qmd_path):
+        if _looks_like_external_reference(reference_doc):
+            continue
+        reference_path = Path(reference_doc).expanduser()
+        if not reference_path.is_absolute():
+            reference_path = qmd_path.parent / reference_path
+        reference_path = reference_path.resolve()
+        if not reference_path.exists():
+            missing.append((reference_doc, reference_path))
+
+    if not missing:
+        return ""
+
+    lines = ["Reference PPTX not found for QMD conversion:"]
+    for raw_value, expected_path in missing:
+        lines.append(f"- reference-doc: {raw_value}")
+        lines.append(f"  expected path: {expected_path}")
+    lines.append("Quarto resolves relative reference-doc paths from the QMD folder.")
+    lines.append(
+        "Copy or rename the PPTX to that path, change reference-doc to a valid path, "
+        "or remove reference-doc to use Quarto's default PPTX template."
+    )
+    return "\n".join(lines)
+
+
+def _quarto_reference_docs(qmd_path: Path) -> list[str]:
+    front_matter = _quarto_front_matter_lines(qmd_path)
+    references: list[str] = []
+    for line in front_matter:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        key, separator, value = stripped.partition(":")
+        if separator and key.strip() == "reference-doc":
+            reference_doc = _clean_yaml_scalar(value)
+            if reference_doc:
+                references.append(reference_doc)
+    return references
+
+
+def _quarto_front_matter_lines(qmd_path: Path) -> list[str]:
+    try:
+        text = qmd_path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        text = qmd_path.read_text(encoding="utf-8", errors="replace")
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return []
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() in {"---", "..."}:
+            return lines[1:index]
+    return []
+
+
+def _clean_yaml_scalar(value: str) -> str:
+    value = value.strip()
+    if not value:
+        return ""
+
+    quote = value[0]
+    if quote in {"'", '"'}:
+        end_index = value.find(quote, 1)
+        if end_index != -1:
+            return value[1:end_index].strip()
+        return value[1:].strip()
+
+    comment_index = _yaml_comment_index(value)
+    if comment_index != -1:
+        value = value[:comment_index]
+    return value.strip()
+
+
+def _yaml_comment_index(value: str) -> int:
+    for index, char in enumerate(value):
+        if char == "#" and (index == 0 or value[index - 1].isspace()):
+            return index
+    return -1
+
+
+def _looks_like_external_reference(value: str) -> bool:
+    return "://" in value or value.startswith("data:")
 
 
 def _windows_quarto_candidates() -> list[Path]:

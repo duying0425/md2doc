@@ -693,6 +693,55 @@ class Qmd2PptConverterTests(unittest.TestCase):
 
         self.assertEqual([check.name for check in checks], ["Quarto"])
 
+    def test_qmd2ppt_reports_missing_reference_doc_before_render(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "presentation.qmd"
+            source.write_text(
+                "\n".join(
+                    [
+                        "---",
+                        "format:",
+                        "  pptx:",
+                        "    reference-doc: missing-template.pptx",
+                        "---",
+                        "",
+                        "## Slide",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            fake_quarto = root / "fake_quarto.py"
+            fake_quarto.write_text(
+                "\n".join(
+                    [
+                        "from pathlib import Path",
+                        "import sys",
+                        "if '--version' in sys.argv:",
+                        "    print('fake quarto 1.0')",
+                        "    raise SystemExit(0)",
+                        "Path('render-called.txt').write_text('called', encoding='utf-8')",
+                        "raise SystemExit(0)",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            results = run_conversions(
+                root,
+                [source],
+                ConvertSettings(
+                    kind=KIND_QMD2PPT,
+                    output_dir=root,
+                    quarto_cmd=f"python {fake_quarto}",
+                ),
+            )
+
+            self.assertEqual(results[0].status, "failed")
+            self.assertIn("Reference PPTX not found", results[0].message)
+            self.assertIn(str(root / "missing-template.pptx"), results[0].message)
+            self.assertFalse((root / "render-called.txt").exists())
+
 
 class LuaFilterTests(unittest.TestCase):
     def test_png_scaling(self) -> None:
