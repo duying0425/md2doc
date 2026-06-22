@@ -588,6 +588,59 @@ class ConverterTests(unittest.TestCase):
             duration = time.time() - start_time
             self.assertLess(duration, 1.5)
 
+    def test_run_conversions_updates_manifest_metadata_on_skip_unchanged_with_outdated_mtime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "a.md"
+            output_dir = root / "output"
+            fake_pandoc = root / "fake_pandoc.py"
+            source.write_text("# A", encoding="utf-8")
+            fake_pandoc.write_text(
+                "\n".join(
+                    [
+                        "from pathlib import Path",
+                        "import sys",
+                        "import zipfile",
+                        "if '--version' in sys.argv:",
+                        "    print('fake pandoc 1.0')",
+                        "    raise SystemExit(0)",
+                        "output = Path(sys.argv[sys.argv.index('-o') + 1])",
+                        "output.parent.mkdir(parents=True, exist_ok=True)",
+                        "with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as docx:",
+                        "    docx.writestr('word/document.xml', '<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body></w:body></w:document>')",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            settings = ConvertSettings(
+                output_dir=output_dir,
+                pandoc_cmd=f"python {fake_pandoc}",
+                mermaid_filter_cmd="python",
+            )
+
+            results = run_conversions(root, [source], settings)
+            self.assertEqual(results[0].status, "converted")
+
+            manifest_path = root / ".md2doc" / "manifest.json"
+            self.assertTrue(manifest_path.exists())
+
+            manifest = BuildManifest.load(root)
+            old_mtime = manifest.records["a.md"]["source_mtime_ns"]
+
+            # Change the source file's mtime but keep content unchanged
+            stat = source.stat()
+            os.utime(source, (stat.st_atime + 100, stat.st_mtime + 100))
+            new_actual_mtime = source.stat().st_mtime_ns
+            self.assertNotEqual(old_mtime, new_actual_mtime)
+
+            results2 = run_conversions(root, [source], settings)
+            self.assertEqual(results2[0].status, "skipped")
+            self.assertEqual(results2[0].message, "unchanged")
+
+            updated_manifest = BuildManifest.load(root)
+            self.assertEqual(updated_manifest.records["a.md"]["source_mtime_ns"], new_actual_mtime)
+
 class Doc2MdConverterTests(unittest.TestCase):
     def test_scan_source_files_picks_office_documents_for_doc2md(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

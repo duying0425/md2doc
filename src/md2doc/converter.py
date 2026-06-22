@@ -395,6 +395,14 @@ def run_conversions(
         if item.action == "skip":
             result = ConversionResult(item=item, status="skipped", message=item.reason)
             results.append(result)
+            if item.reason == "unchanged":
+                record = manifest.records.get(item.relative_source)
+                if record and (
+                    record.get("source_mtime_ns") != item.fingerprint.mtime_ns
+                    or record.get("source_size") != item.fingerprint.size
+                ):
+                    manifest.record_success(item)
+                    manifest.save()
             if on_event:
                 on_event(result)
             continue
