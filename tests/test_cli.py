@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from md2doc import cli
+from md2doc.project import KIND_HTML2PDF, load_project
 
 
 class CliTests(unittest.TestCase):
@@ -82,6 +83,35 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(code, 0)
             self.assertEqual(stdout.getvalue().splitlines(), ["a.md"])
+
+    def test_init_accepts_html2pdf_kind(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "pages"
+
+            with redirect_stdout(io.StringIO()):
+                code = cli.main(["init", str(root), "--kind", "html2pdf"])
+
+            self.assertEqual(code, 0)
+            config = load_project(root)
+            self.assertEqual(config.kind, KIND_HTML2PDF)
+            self.assertEqual(config.output_format, "pdf")
+
+    def test_plan_accepts_single_html_file_as_html2pdf_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "poster.html"
+            source.write_text("<main></main>", encoding="utf-8")
+            stdout = io.StringIO()
+
+            with (
+                redirect_stdout(stdout),
+                patch("md2doc.cli.run_conversions", side_effect=AssertionError("should not convert")),
+            ):
+                code = cli.main(["plan", str(source)])
+
+            self.assertEqual(code, 0)
+            self.assertIn("poster.html", stdout.getvalue())
+            self.assertIn("poster.pdf", stdout.getvalue())
+            self.assertEqual(load_project(source.parent).kind, KIND_HTML2PDF)
 
     def test_missing_markdown_file_target_returns_usage_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

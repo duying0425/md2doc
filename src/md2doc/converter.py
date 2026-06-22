@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -16,14 +17,23 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from ._process import hidden_subprocess_kwargs
-from .project import KIND_DOC2MD, KIND_MD2DOC, KIND_QMD2PPT, PROJECT_DIR_NAME, ProjectConfig
+from .project import (
+    KIND_DOC2MD,
+    KIND_HTML2PDF,
+    KIND_MD2DOC,
+    KIND_QMD2PPT,
+    PROJECT_DIR_NAME,
+    ProjectConfig,
+)
 
 
 SUPPORTED_FORMATS = {"docx": ".docx", "pptx": ".pptx"}
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
 # Office documents that MarkItDown can turn into Markdown (Word/PowerPoint/Excel).
 OFFICE_SUFFIXES = {".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls"}
+HTML_SUFFIXES = {".html", ".htm"}
 DOC2MD_OUTPUT_SUFFIX = ".md"
+HTML2PDF_OUTPUT_SUFFIX = ".pdf"
 DEFAULT_EXCLUDED_DIRS = {
     ".git",
     ".hg",
@@ -94,6 +104,8 @@ class ConvertSettings:
             return DOC2MD_OUTPUT_SUFFIX
         if self.kind == KIND_QMD2PPT:
             return ".pptx"
+        if self.kind == KIND_HTML2PDF:
+            return HTML2PDF_OUTPUT_SUFFIX
         try:
             return SUPPORTED_FORMATS[self.output_format]
         except KeyError as exc:
@@ -105,6 +117,8 @@ class ConvertSettings:
             return OFFICE_SUFFIXES
         if self.kind == KIND_QMD2PPT:
             return {".qmd"}
+        if self.kind == KIND_HTML2PDF:
+            return HTML_SUFFIXES
         return MARKDOWN_SUFFIXES
 
 
@@ -202,6 +216,8 @@ def check_dependencies(settings: ConvertSettings) -> list[DependencyCheck]:
         return [_check_markitdown(settings.markitdown_cmd)]
     if settings.kind == KIND_QMD2PPT:
         return [_check_command("Quarto", settings.quarto_cmd)]
+    if settings.kind == KIND_HTML2PDF:
+        return [_check_html_pdf_runtime()]
     return [
         _check_command("Pandoc", settings.pandoc_cmd),
         _check_command("mermaid-filter", settings.mermaid_filter_cmd, allow_version_failure=True),
@@ -222,6 +238,8 @@ def missing_dependency_message(checks: Iterable[DependencyCheck]) -> str:
         lines.append("Install MarkItDown: pip install 'markitdown[docx,pptx,xlsx]'")
     if "Quarto" in names:
         lines.append("Install Quarto: https://quarto.org/docs/get-started/")
+    if "Playwright/Chromium" in names:
+        lines.append("Install Playwright and a browser: pip install playwright && python -m playwright install chromium")
     return "\n".join(lines)
 
 
@@ -237,6 +255,8 @@ def scan_source_files(
         suffixes = OFFICE_SUFFIXES
     elif kind == KIND_QMD2PPT:
         suffixes = {".qmd"}
+    elif kind == KIND_HTML2PDF:
+        suffixes = HTML_SUFFIXES
     else:
         suffixes = MARKDOWN_SUFFIXES
     return _scan_files(
@@ -565,6 +585,8 @@ def _run_one(
         return _run_markitdown(item, settings, cancel_event=cancel_event)
     if settings.kind == KIND_QMD2PPT:
         return _run_quarto(item, settings, cancel_event=cancel_event)
+    if settings.kind == KIND_HTML2PDF:
+        return _run_html_to_pdf(item, cancel_event=cancel_event)
     item.output.parent.mkdir(parents=True, exist_ok=True)
     cmd = _pandoc_command(project_root, item, settings)
     env = os.environ.copy()
@@ -595,6 +617,252 @@ def _run_one(
         message=message,
         returncode=completed.returncode,
     )
+
+
+def _run_html_to_pdf(
+    item: PlanItem,
+    cancel_event: threading.Event | None = None,
+) -> ConversionResult:
+    if cancel_event is not None and cancel_event.is_set():
+        raise ConversionCancelledError("Conversion cancelled by user")
+
+    item.output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf", dir=item.output.parent) as tmp:
+        temp_path = Path(tmp.name)
+    try:
+        _render_html_to_single_page_pdf(item.source, temp_path, cancel_event=cancel_event)
+        if cancel_event is not None and cancel_event.is_set():
+            raise ConversionCancelledError("Conversion cancelled by user")
+        if item.output.exists():
+            item.output.unlink()
+        shutil.move(str(temp_path), str(item.output))
+        return ConversionResult(item=item, status="converted", message="converted", returncode=0)
+    except ConversionCancelledError:
+        raise
+    except Exception as exc:
+        return ConversionResult(
+            item=item,
+            status="failed",
+            message=str(exc),
+            returncode=1,
+        )
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+
+def _render_html_to_single_page_pdf(
+    source: Path,
+    output: Path,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> None:
+    if importlib.util.find_spec("playwright") is None:
+        raise RuntimeError(
+            "Playwright is not installed. Install it with: pip install playwright && python -m playwright install chromium"
+        )
+
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = _launch_html_pdf_browser(playwright)
+        try:
+            if cancel_event is not None and cancel_event.is_set():
+                raise ConversionCancelledError("Conversion cancelled by user")
+            page = browser.new_page(
+                viewport={"width": 1280, "height": 720},
+                device_scale_factor=1,
+            )
+            page.emulate_media(media="screen")
+            page.goto(source.as_uri(), wait_until="load", timeout=60000)
+            _wait_for_html_render_ready(page)
+            width_px, height_px = _measure_html_render_size(page)
+            if cancel_event is not None and cancel_event.is_set():
+                raise ConversionCancelledError("Conversion cancelled by user")
+            page.pdf(
+                path=str(output),
+                width=f"{width_px}px",
+                height=f"{height_px}px",
+                margin={"top": "0px", "right": "0px", "bottom": "0px", "left": "0px"},
+                print_background=True,
+                prefer_css_page_size=False,
+                scale=1,
+            )
+        finally:
+            browser.close()
+
+
+def _launch_html_pdf_browser(playwright):
+    errors: list[str] = []
+    for label, options in _html_pdf_launch_candidates(playwright):
+        try:
+            return playwright.chromium.launch(headless=True, **options)
+        except Exception as exc:
+            errors.append(f"{label}: {exc}")
+    details = "; ".join(errors)
+    raise RuntimeError(
+        "Could not launch a Chromium browser for HTML to PDF. "
+        "Install Microsoft Edge, Google Chrome, or run: python -m playwright install chromium"
+        + (f"\n{details}" if details else "")
+    )
+
+
+def _html_pdf_launch_candidates(playwright) -> list[tuple[str, dict[str, str]]]:
+    candidates: list[tuple[str, dict[str, str]]] = []
+    if os.name == "nt":
+        candidates.extend(
+            [
+                ("Microsoft Edge", {"channel": "msedge"}),
+                ("Google Chrome", {"channel": "chrome"}),
+            ]
+        )
+    else:
+        candidates.extend(
+            [
+                ("Google Chrome", {"channel": "chrome"}),
+                ("Microsoft Edge", {"channel": "msedge"}),
+            ]
+        )
+    candidates.append(("Playwright Chromium", {}))
+    return candidates
+
+
+def _wait_for_html_render_ready(page) -> None:
+    try:
+        page.wait_for_load_state("networkidle", timeout=5000)
+    except Exception:
+        pass
+    page.evaluate(
+        """
+        async () => {
+          if (document.fonts && document.fonts.ready) {
+            await document.fonts.ready;
+          }
+          const images = Array.from(document.images || []);
+          await Promise.all(images.map((image) => {
+            if (image.complete) {
+              return Promise.resolve();
+            }
+            return new Promise((resolve) => {
+              image.addEventListener('load', resolve, { once: true });
+              image.addEventListener('error', resolve, { once: true });
+            });
+          }));
+        }
+        """
+    )
+
+
+def _measure_html_render_size(page) -> tuple[int, int]:
+    size = page.evaluate(
+        """
+        () => {
+          const doc = document.documentElement;
+          const body = document.body;
+          const viewportWidth = window.innerWidth || 0;
+          const viewportHeight = window.innerHeight || 0;
+          let right = 0;
+          let bottom = 0;
+          const sizeProperties = ['width', 'height', 'min-width', 'min-height'];
+
+          const visit = (element) => {
+            if (!element || !element.getBoundingClientRect) {
+              return;
+            }
+            const rect = element.getBoundingClientRect();
+            if (!Number.isFinite(rect.right) || !Number.isFinite(rect.bottom)) {
+              return;
+            }
+            if (rect.width > 0 || rect.height > 0) {
+              right = Math.max(right, rect.right + window.scrollX);
+              bottom = Math.max(bottom, rect.bottom + window.scrollY);
+            }
+          };
+
+          const ruleDeclaresSizeFor = (element, rules) => {
+            for (const rule of Array.from(rules || [])) {
+              if (rule.cssRules && ruleDeclaresSizeFor(element, rule.cssRules)) {
+                return true;
+              }
+              if (!rule.selectorText || !rule.style) {
+                continue;
+              }
+              try {
+                if (
+                  sizeProperties.some((name) => rule.style.getPropertyValue(name)) &&
+                  element.matches(rule.selectorText)
+                ) {
+                  return true;
+                }
+              } catch (_error) {
+                continue;
+              }
+            }
+            return false;
+          };
+
+          const hasDeclaredSize = (element) => {
+            if (!element) {
+              return false;
+            }
+            const inlineDeclares = sizeProperties.some((name) => element.style.getPropertyValue(name));
+            if (inlineDeclares) {
+              return true;
+            }
+            for (const sheet of Array.from(document.styleSheets || [])) {
+              try {
+                if (ruleDeclaresSizeFor(element, sheet.cssRules)) {
+                  return true;
+                }
+              } catch (_error) {
+                continue;
+              }
+            }
+            return false;
+          };
+
+          if (hasDeclaredSize(doc)) {
+            visit(doc);
+          }
+          if (hasDeclaredSize(body)) {
+            visit(body);
+          }
+          if (body) {
+            for (const element of Array.from(body.querySelectorAll('*'))) {
+              visit(element);
+            }
+          }
+
+          const scrollWidth = Math.max(
+            doc ? doc.scrollWidth : 0,
+            body ? body.scrollWidth : 0,
+            doc ? doc.offsetWidth : 0,
+            body ? body.offsetWidth : 0
+          );
+          const scrollHeight = Math.max(
+            doc ? doc.scrollHeight : 0,
+            body ? body.scrollHeight : 0,
+            doc ? doc.offsetHeight : 0,
+            body ? body.offsetHeight : 0
+          );
+          if (scrollWidth > viewportWidth) {
+            right = Math.max(right, scrollWidth);
+          }
+          if (scrollHeight > viewportHeight) {
+            bottom = Math.max(bottom, scrollHeight);
+          }
+          if ((right <= 0 || bottom <= 0) && body) {
+            visit(body);
+          }
+
+          return {
+            width: Math.max(1, Math.ceil(right + 1)),
+            height: Math.max(1, Math.ceil(bottom + 1))
+          };
+        }
+        """
+    )
+    return int(size["width"]), int(size["height"])
 
 
 def _run_markitdown(
@@ -926,7 +1194,7 @@ def _mermaid_environment(settings: ConvertSettings) -> dict[str, str]:
 
 
 def _validate_settings(project_root: Path, settings: ConvertSettings) -> None:
-    if settings.kind in (KIND_DOC2MD, KIND_QMD2PPT):
+    if settings.kind in (KIND_DOC2MD, KIND_QMD2PPT, KIND_HTML2PDF):
         return
     if settings.reference_docx:
         reference_docx = _resolve_project_path(project_root, settings.reference_docx)
@@ -1148,6 +1416,54 @@ def _file_stat_signature(path_value: str, project_root: Path | None = None) -> d
     return {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
 
 
+def _check_html_pdf_runtime() -> DependencyCheck:
+    name = "Playwright/Chromium"
+    if importlib.util.find_spec("playwright") is None:
+        return DependencyCheck(
+            name=name,
+            command="playwright",
+            available=False,
+            detail="Playwright Python package was not found",
+        )
+
+    system_browser = _known_html_pdf_browser_path()
+    if system_browser:
+        return DependencyCheck(
+            name=name,
+            command="playwright",
+            available=True,
+            detail=f"Playwright installed; found browser at {system_browser}",
+        )
+
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            bundled = Path(playwright.chromium.executable_path)
+    except Exception as exc:
+        return DependencyCheck(
+            name=name,
+            command="playwright",
+            available=False,
+            detail=f"Playwright runtime failed: {exc}",
+        )
+
+    if bundled.exists():
+        return DependencyCheck(
+            name=name,
+            command="playwright",
+            available=True,
+            detail=f"Playwright installed; found Chromium at {bundled}",
+        )
+
+    return DependencyCheck(
+        name=name,
+        command="playwright",
+        available=False,
+        detail="Playwright is installed, but no Chromium, Edge, or Chrome browser was found",
+    )
+
+
 def _check_command(name: str, command: str, *, allow_version_failure: bool = False) -> DependencyCheck:
     args = _resolve_command(command)
     if not _command_exists(args[0]):
@@ -1314,6 +1630,47 @@ def _registry_value(winreg_module, key, name: str) -> str:
 def _env_path(name: str) -> Path | None:
     value = os.environ.get(name)
     return Path(value) if value else None
+
+
+def _known_html_pdf_browser_path() -> Path | None:
+    if os.name == "nt":
+        for path in _windows_html_pdf_browser_candidates():
+            if path.exists():
+                return path
+
+    for command in (
+        "msedge",
+        "microsoft-edge",
+        "google-chrome",
+        "chrome",
+        "chromium",
+        "chromium-browser",
+    ):
+        path = shutil.which(command)
+        if path:
+            return Path(path)
+    return None
+
+
+def _windows_html_pdf_browser_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    program_files = _env_path("ProgramFiles")
+    program_files_x86 = _env_path("ProgramFiles(x86)")
+    local_app_data = _env_path("LOCALAPPDATA")
+
+    candidates.extend(
+        path
+        for path in [
+            program_files / "Microsoft" / "Edge" / "Application" / "msedge.exe" if program_files else None,
+            program_files_x86 / "Microsoft" / "Edge" / "Application" / "msedge.exe" if program_files_x86 else None,
+            local_app_data / "Microsoft" / "Edge" / "Application" / "msedge.exe" if local_app_data else None,
+            program_files / "Google" / "Chrome" / "Application" / "chrome.exe" if program_files else None,
+            program_files_x86 / "Google" / "Chrome" / "Application" / "chrome.exe" if program_files_x86 else None,
+            local_app_data / "Google" / "Chrome" / "Application" / "chrome.exe" if local_app_data else None,
+        ]
+        if path is not None
+    )
+    return _dedupe_paths(candidates)
 
 
 def _safe_glob(root: Path, pattern: str) -> list[Path]:

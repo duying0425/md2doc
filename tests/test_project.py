@@ -7,6 +7,7 @@ import unittest
 
 from md2doc.project import (
     KIND_DOC2MD,
+    KIND_HTML2PDF,
     KIND_MD2DOC,
     KIND_QMD2PPT,
     PROJECT_CONFIG_NAME,
@@ -45,12 +46,27 @@ class ProjectKindTests(unittest.TestCase):
         self.assertEqual(config.kind, KIND_QMD2PPT)
         self.assertEqual(config.output_format, "pptx")
 
+    def test_html2pdf_config_forces_pdf_output_format(self) -> None:
+        config = ProjectConfig.from_dict(
+            {"name": "Pages", "root": "/tmp/pages", "kind": KIND_HTML2PDF, "output_format": "docx"}
+        )
+
+        self.assertEqual(config.kind, KIND_HTML2PDF)
+        self.assertEqual(config.output_format, "pdf")
+
     def test_create_doc2md_project_emits_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = create_project(Path(tmp) / "proj", kind=KIND_DOC2MD)
 
             self.assertEqual(config.kind, KIND_DOC2MD)
             self.assertEqual(config.output_format, "md")
+
+    def test_create_html2pdf_project_emits_pdf(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = create_project(Path(tmp) / "proj", kind=KIND_HTML2PDF)
+
+            self.assertEqual(config.kind, KIND_HTML2PDF)
+            self.assertEqual(config.output_format, "pdf")
 
     def test_load_project_cleans_legacy_config_on_disk(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -99,4 +115,3 @@ class ProjectRegistryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

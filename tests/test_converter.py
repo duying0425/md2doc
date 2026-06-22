@@ -13,6 +13,7 @@ import zipfile
 from md2doc.converter import (
     BuildManifest,
     ConvertSettings,
+    DependencyCheck,
     _center_docx_images,
     _ensure_generated_reference_docx,
     _markitdown_command,
@@ -28,7 +29,7 @@ from md2doc.converter import (
     settings_from_project,
     settings_signature,
 )
-from md2doc.project import KIND_DOC2MD, KIND_QMD2PPT, ProjectConfig
+from md2doc.project import KIND_DOC2MD, KIND_HTML2PDF, KIND_QMD2PPT, ProjectConfig
 
 
 class ConverterTests(unittest.TestCase):
@@ -741,6 +742,70 @@ class Qmd2PptConverterTests(unittest.TestCase):
             self.assertIn("Reference PPTX not found", results[0].message)
             self.assertIn(str(root / "missing-template.pptx"), results[0].message)
             self.assertFalse((root / "render-called.txt").exists())
+
+
+class Html2PdfConverterTests(unittest.TestCase):
+    def test_scan_source_files_picks_html_documents_for_html2pdf(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "index.html").write_text("<h1>Index</h1>", encoding="utf-8")
+            (root / "page.htm").write_text("<h1>Page</h1>", encoding="utf-8")
+            (root / "notes.md").write_text("# Notes", encoding="utf-8")
+
+            files = scan_source_files(root, kind=KIND_HTML2PDF)
+
+            self.assertEqual(
+                [file.relative_to(root).as_posix() for file in files],
+                ["index.html", "page.htm"],
+            )
+
+    def test_plan_emits_pdf_output_for_html2pdf(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "poster.html"
+            source.write_text("<main></main>", encoding="utf-8")
+
+            settings = ConvertSettings(kind=KIND_HTML2PDF, output_dir=root)
+            item = plan_conversions(root, [source], settings)[0]
+
+            self.assertEqual(item.output, root / "poster.pdf")
+
+    def test_check_dependencies_uses_playwright_for_html2pdf(self) -> None:
+        expected = DependencyCheck(
+            name="Playwright/Chromium",
+            command="playwright",
+            available=True,
+            detail="ready",
+        )
+
+        with patch("md2doc.converter._check_html_pdf_runtime", return_value=expected):
+            checks = check_dependencies(ConvertSettings(kind=KIND_HTML2PDF))
+
+        self.assertEqual(checks, [expected])
+
+    def test_run_conversions_uses_html_pdf_renderer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "poster.html"
+            source.write_text("<main></main>", encoding="utf-8")
+
+            def fake_render(_source: Path, output: Path, *, cancel_event=None) -> None:
+                output.write_bytes(b"%PDF-1.4\n")
+
+            with (
+                patch("md2doc.converter._check_html_pdf_runtime", return_value=DependencyCheck("Playwright/Chromium", "playwright", True, "ready")),
+                patch("md2doc.converter._render_html_to_single_page_pdf", side_effect=fake_render) as render,
+            ):
+                results = run_conversions(
+                    root,
+                    [source],
+                    ConvertSettings(kind=KIND_HTML2PDF, output_dir=root),
+                )
+
+            self.assertEqual([result.status for result in results], ["converted"])
+            self.assertEqual(results[0].item.output, root / "poster.pdf")
+            self.assertTrue((root / "poster.pdf").exists())
+            render.assert_called_once()
 
 
 class LuaFilterTests(unittest.TestCase):

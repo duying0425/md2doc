@@ -2,18 +2,20 @@
 
 [简体中文](README_zh.md) | English
 
-Local document converter supporting three types of project formats:
+Local document converter supporting four types of project formats:
 1. **Markdown to Word documents** (`md2doc`): Convert Markdown (`.md`, `.markdown`) to DOCX using Pandoc and `mermaid-filter`.
 2. **Office documents to Markdown** (`doc2md`): Convert Word, PowerPoint, and Excel (`.docx`, `.pptx`, `.xlsx`, etc.) to Markdown using MarkItDown.
 3. **Quarto Markdown to PowerPoint** (`qmd2ppt`): Convert Quarto Markdown (`.qmd`) to PowerPoint presentations (`.pptx`) using Quarto CLI.
+4. **HTML to single-page PDF** (`html2pdf`): Render HTML (`.html`, `.htm`) in Chromium and export one custom-sized PDF page based on the rendered HTML dimensions.
 
 ## Features
 
-- Create projects from folders, choosing from three conversion formats.
-- Scan source files recursively (handles `.md`/`.markdown` for Markdown projects, `.docx`/`.pptx`/etc. for Office projects, and `.qmd` for Quarto projects).
+- Create projects from folders, choosing from four conversion formats.
+- Scan source files recursively (handles `.md`/`.markdown` for Markdown projects, `.docx`/`.pptx`/etc. for Office projects, `.qmd` for Quarto projects, and `.html`/`.htm` for HTML projects).
 - Convert one selected file or a batch of files.
 - Use Pandoc with `mermaid-filter` so Mermaid diagrams are rendered during DOCX export (for Markdown projects).
 - Use Quarto CLI to compile `.qmd` documents into `.pptx` slides (for Quarto projects).
+- Use Chromium through Playwright to render HTML into one PDF page whose size follows the rendered HTML content instead of a default paper template.
 - Skip unchanged source files when a previous output already exists.
 - Configure document output per project.
 - Store project metadata in `.md2doc/project.json`.
@@ -51,6 +53,11 @@ Install the external conversion tools depending on your project type:
   ```
 - **Office documents to Markdown**: The required `markitdown` Python package is automatically installed as a dependency.
 - **Quarto Markdown to PowerPoint**: Install Quarto CLI from [quarto.org](https://quarto.org/docs/get-started/).
+- **HTML to PDF**: Install the Python `playwright` package. md2doc uses installed Microsoft Edge or Google Chrome when available; otherwise install Playwright Chromium:
+  ```powershell
+  python -m pip install playwright
+  python -m playwright install chromium
+  ```
 
 The app can still open and scan projects without those tools installed.
 
@@ -93,6 +100,8 @@ python -m md2doc plan C:\docs
 python -m md2doc convert C:\docs --format docx
 python -m md2doc convert C:\docs README.md docs\guide.md --format docx --force
 python -m md2doc convert C:\docs\README.md --format docx --output-dir C:\docs\build
+python -m md2doc init C:\pages --kind html2pdf
+python -m md2doc convert C:\pages\poster.html
 python -m md2doc deps
 ```
 
@@ -103,13 +112,13 @@ When the package is installed, replace `python -m md2doc` with `md2doc`.
 ### Commands
 
 - `md2doc` or `md2doc gui`: open the desktop app.
-- `md2doc init <folder>`: create `.md2doc/project.json`. Accepts optional `--kind md2doc|doc2md|qmd2ppt`.
+- `md2doc init <folder>`: create `.md2doc/project.json`. Accepts optional `--kind md2doc|doc2md|qmd2ppt|html2pdf`.
 - `md2doc scan <folder>`: list source files in a project.
 - `md2doc plan <folder-or-file> [files...]`: print the conversion plan.
 - `md2doc convert <folder-or-file> [files...]`: run conversions.
-- `md2doc deps`: check installed Markdown conversion tools (Pandoc and `mermaid-filter`).
+- `md2doc deps`: check installed Markdown conversion tools (Pandoc and `mermaid-filter`). Use `--kind html2pdf` to check Playwright and browser availability.
 
-`convert` and `plan` accept either a project folder or one Markdown file. When a
+`convert` and `plan` accept either a project folder or one source file. When a
 folder is used, optional file arguments are resolved relative to the project
 folder:
 

@@ -39,6 +39,7 @@ from .converter import (
 from .dependencies import ensure_startup_dependencies
 from .project import (
     KIND_DOC2MD,
+    KIND_HTML2PDF,
     KIND_MD2DOC,
     KIND_QMD2PPT,
     ProjectConfig,
@@ -382,6 +383,12 @@ class Md2DocApp(tk.Tk):
             variable=kind_var,
             value=KIND_QMD2PPT,
         ).grid(row=3, column=0, sticky="w", pady=self._pad(2, 0))
+        ttk.Radiobutton(
+            frame,
+            text="HTML (.html)  ->  single-page PDF (.pdf)   (Chromium)",
+            variable=kind_var,
+            value=KIND_HTML2PDF,
+        ).grid(row=4, column=0, sticky="w", pady=self._pad(2, 0))
 
         result: dict[str, str | None] = {"kind": None}
 
@@ -390,7 +397,7 @@ class Md2DocApp(tk.Tk):
             dialog.destroy()
 
         buttons = ttk.Frame(frame)
-        buttons.grid(row=4, column=0, sticky="e", pady=self._pad(16, 0))
+        buttons.grid(row=5, column=0, sticky="e", pady=self._pad(16, 0))
         ttk.Button(buttons, text="Continue", command=confirm).grid(row=0, column=0)
 
         dialog.bind("<Return>", lambda _event: confirm())
@@ -517,6 +524,10 @@ class Md2DocApp(tk.Tk):
             self.format_box.configure(values=("pptx",), state="disabled")
             self.format_var.set("pptx")
             self.tree.heading("file", text="Quarto Markdown")
+        elif kind == KIND_HTML2PDF:
+            self.format_box.configure(values=("pdf",), state="disabled")
+            self.format_var.set("pdf")
+            self.tree.heading("file", text="HTML")
         else:
             self.format_box.configure(values=("docx",), state="disabled")
             self.format_var.set("docx")
@@ -842,6 +853,14 @@ class Md2DocApp(tk.Tk):
                 "files are written.",
             )
             return
+        if project.kind == KIND_HTML2PDF:
+            messagebox.showinfo(
+                "Project Settings",
+                "HTML to PDF projects use the rendered HTML and CSS size to create one "
+                "custom-sized PDF page. Use the Output box to choose where the .pdf "
+                "files are written.",
+            )
+            return
         dialog = SettingsDialog(self, project)
         self.wait_window(dialog)
         if dialog.saved:
@@ -936,6 +955,8 @@ class Md2DocApp(tk.Tk):
                     tool = "MarkItDown"
                 elif self.current_project and self.current_project.kind == KIND_QMD2PPT:
                     tool = "Quarto"
+                elif self.current_project and self.current_project.kind == KIND_HTML2PDF:
+                    tool = "Chromium"
                 else:
                     tool = "Pandoc"
                 self._set_item_state(item, _state_label("queued"), f"Waiting for {tool}", "queued")
@@ -946,6 +967,8 @@ class Md2DocApp(tk.Tk):
             tool = "MarkItDown"
         elif state.kind == KIND_QMD2PPT:
             tool = "Quarto"
+        elif state.kind == KIND_HTML2PDF:
+            tool = "Chromium"
         else:
             tool = "Pandoc"
         state_label = _state_label("running")
@@ -1501,6 +1524,8 @@ def _kind_label(kind: str) -> str:
         return "Office to Markdown"
     if kind == KIND_QMD2PPT:
         return "Quarto to PowerPoint"
+    if kind == KIND_HTML2PDF:
+        return "HTML to PDF"
     return "Markdown to document"
 
 
@@ -1509,6 +1534,8 @@ def _input_label(kind: str) -> str:
         return "Office"
     if kind == KIND_QMD2PPT:
         return "Quarto"
+    if kind == KIND_HTML2PDF:
+        return "HTML"
     return "Markdown"
 
 
@@ -1529,7 +1556,7 @@ def _reason_label(reason: str) -> str:
         "output missing": "Output file does not exist",
         "output is newer than source": "Output is newer than source",
         "no history and source is newer": "Source is newer than output",
-        "source changed": "Markdown changed",
+        "source changed": "Source changed",
         "conversion settings changed": "Conversion settings changed",
         "unchanged": "Output is up to date",
         "forced": "Force conversion enabled",

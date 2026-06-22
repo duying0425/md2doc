@@ -13,7 +13,8 @@ PROJECT_CONFIG_NAME = "project.json"
 KIND_MD2DOC = "md2doc"
 KIND_DOC2MD = "doc2md"
 KIND_QMD2PPT = "qmd2ppt"
-VALID_KINDS = {KIND_MD2DOC, KIND_DOC2MD, KIND_QMD2PPT}
+KIND_HTML2PDF = "html2pdf"
+VALID_KINDS = {KIND_MD2DOC, KIND_DOC2MD, KIND_QMD2PPT, KIND_HTML2PDF}
 
 
 def default_output_format(kind: str) -> str:
@@ -21,6 +22,8 @@ def default_output_format(kind: str) -> str:
         return "md"
     if kind == KIND_QMD2PPT:
         return "pptx"
+    if kind == KIND_HTML2PDF:
+        return "pdf"
     return "docx"
 
 
@@ -117,6 +120,8 @@ class ProjectConfig:
             output_format = "md"
         elif kind == KIND_QMD2PPT:
             output_format = "pptx"
+        elif kind == KIND_HTML2PDF:
+            output_format = "pdf"
         else:
             output_format = str(data.get("output_format") or "docx")
         scale_val = data.get("mermaid_scale")

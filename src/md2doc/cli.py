@@ -17,13 +17,25 @@ from .converter import (
     scan_source_files,
     settings_from_project,
 )
-from .project import KIND_DOC2MD, KIND_MD2DOC, KIND_QMD2PPT, VALID_KINDS, ProjectConfig, create_project, load_project
+from .project import (
+    KIND_DOC2MD,
+    KIND_HTML2PDF,
+    KIND_MD2DOC,
+    KIND_QMD2PPT,
+    PROJECT_CONFIG_NAME,
+    PROJECT_DIR_NAME,
+    VALID_KINDS,
+    ProjectConfig,
+    create_project,
+    load_project,
+)
 
 
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
 OFFICE_SUFFIXES = {".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls"}
 QMD_SUFFIXES = {".qmd"}
-SOURCE_SUFFIXES = MARKDOWN_SUFFIXES | OFFICE_SUFFIXES | QMD_SUFFIXES
+HTML_SUFFIXES = {".html", ".htm"}
+SOURCE_SUFFIXES = MARKDOWN_SUFFIXES | OFFICE_SUFFIXES | QMD_SUFFIXES | HTML_SUFFIXES
 OUTPUT_FORMATS = ("docx",)
 
 
@@ -37,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="md2doc",
         description=(
             "Convert Markdown to DOCX with Pandoc, or convert Word/PPT/Excel "
-            "to Markdown with MarkItDown."
+            "to Markdown with MarkItDown, or convert HTML to single-page PDF."
         ),
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -52,7 +64,10 @@ def main(argv: list[str] | None = None) -> int:
         "--kind",
         choices=sorted(VALID_KINDS),
         default=KIND_MD2DOC,
-        help="md2doc converts Markdown to documents; doc2md converts Word/PPT/Excel to Markdown; qmd2ppt converts Quarto Markdown to PowerPoint.",
+        help=(
+            "md2doc converts Markdown to documents; doc2md converts Word/PPT/Excel to Markdown; "
+            "qmd2ppt converts Quarto Markdown to PowerPoint; html2pdf converts HTML to a single-page PDF."
+        ),
     )
     init_parser.add_argument("--format", choices=OUTPUT_FORMATS, dest="output_format")
     init_parser.add_argument("--output-dir")
@@ -70,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     _add_conversion_arguments(convert_parser, dry_run=True)
 
     deps_parser = subparsers.add_parser("deps", help="Check conversion tools")
+    deps_parser.add_argument("--kind", choices=sorted(VALID_KINDS), default=KIND_MD2DOC)
     deps_parser.add_argument("--format", default="docx", choices=OUTPUT_FORMATS)
     deps_parser.add_argument("--pandoc", dest="pandoc_cmd", default="pandoc")
     deps_parser.add_argument("--mermaid-filter", dest="mermaid_filter_cmd", default="mermaid-filter")
@@ -97,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "deps":
             checks = check_dependencies(
                 ConvertSettings(
+                    kind=args.kind,
                     output_format=args.format,
                     pandoc_cmd=args.pandoc_cmd,
                     mermaid_filter_cmd=args.mermaid_filter_cmd,
@@ -226,7 +243,7 @@ def _load_conversion_target(target: str, files: list[str]) -> tuple[ProjectConfi
             raise CliUsageError("A single file target cannot be combined with additional file arguments.")
         if not target_path.exists():
             raise CliUsageError(f"Input file not found: {target_path}")
-        config = load_project(target_path.parent)
+        config = _load_project_for_source(target_path)
         return config, [target_path]
 
     config = load_project(target_path)
@@ -241,6 +258,8 @@ def _resolve_project_files(config: ProjectConfig, files: list[str]) -> list[Path
         accepted = OFFICE_SUFFIXES
     elif config.kind == KIND_QMD2PPT:
         accepted = QMD_SUFFIXES
+    elif config.kind == KIND_HTML2PDF:
+        accepted = HTML_SUFFIXES
     else:
         accepted = MARKDOWN_SUFFIXES
     label = _input_label(config.kind)
@@ -313,11 +332,31 @@ def _looks_like_source(path: Path) -> bool:
     return path.suffix.lower() in SOURCE_SUFFIXES
 
 
+def _load_project_for_source(source: Path) -> ProjectConfig:
+    root = source.parent
+    if (root / PROJECT_DIR_NAME / PROJECT_CONFIG_NAME).exists():
+        return load_project(root)
+    kind = _kind_for_source_suffix(source.suffix.lower())
+    return create_project(root, kind=kind)
+
+
+def _kind_for_source_suffix(suffix: str) -> str:
+    if suffix in OFFICE_SUFFIXES:
+        return KIND_DOC2MD
+    if suffix in QMD_SUFFIXES:
+        return KIND_QMD2PPT
+    if suffix in HTML_SUFFIXES:
+        return KIND_HTML2PDF
+    return KIND_MD2DOC
+
+
 def _input_label(kind: str) -> str:
     if kind == KIND_DOC2MD:
         return "Office"
     if kind == KIND_QMD2PPT:
         return "Quarto"
+    if kind == KIND_HTML2PDF:
+        return "HTML"
     return "Markdown"
 
 
