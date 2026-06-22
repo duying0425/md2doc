@@ -495,7 +495,9 @@ class Md2DocApp(tk.Tk):
             self.tree.insert("", tk.END, iid=iid, values=values, tags=(tag,))
 
         self._refresh_busy_state()
-        self._scan()
+        self._update_project_list_display()
+        if not state.conversion_active:
+            self._scan()
 
     def _set_project(self, project: ProjectConfig) -> None:
         if self.current_project:
@@ -558,13 +560,18 @@ class Md2DocApp(tk.Tk):
         project = self.current_project
         if not project:
             return
+        state = self._get_or_create_state(project.root)
+        if state.conversion_active:
+            self.status_var.set(state.status_text)
+            self._refresh_busy_state()
+            self._update_project_list_display()
+            return
         try:
             settings = self._settings()
         except Exception as exc:
             messagebox.showerror("Scan failed", str(exc))
             return
 
-        state = self._get_or_create_state(project.root)
         state.scan_generation += 1
         generation = state.scan_generation
         self.scan_generation = generation
@@ -612,6 +619,14 @@ class Md2DocApp(tk.Tk):
         if generation != state.scan_generation:
             return
         state.scan_worker = None
+        if state.conversion_active:
+            state.scan_active = False
+            if self.current_project and self.current_project.root.resolve() == project_root.resolve():
+                self.scan_active = False
+                self.status_var.set(state.status_text)
+                self._refresh_busy_state()
+            self._update_project_list_display()
+            return
 
         state.plan_by_id.clear()
         state.iid_by_source.clear()
@@ -801,9 +816,9 @@ class Md2DocApp(tk.Tk):
         self._save_project_state(project.root)
         
         self.worker = threading.Thread(target=work, daemon=True)
+        self.worker.start()
         self._refresh_busy_state()
         self._update_project_list_display()
-        self.worker.start()
 
     def _cancel_conversion(self) -> None:
         if self.cancel_event:
@@ -1060,7 +1075,6 @@ class Md2DocApp(tk.Tk):
         log_msg = "Conversion cancelled by user."
         state.log_content += log_msg + "\n"
         state.conversion_active = False
-        self._save_project_state(project_root)
 
         self.worker = None
         self._refresh_busy_state()
@@ -1114,12 +1128,17 @@ class Md2DocApp(tk.Tk):
             button.configure(state=state)
 
     def _refresh_busy_state(self) -> None:
-        converting = self.worker is not None and self.worker.is_alive()
+        converting = self._conversion_is_active()
         self._set_busy(self.scan_active or converting)
-        if converting:
+        if self.worker is not None and self.worker.is_alive():
             self.cancel_button.configure(state="normal")
         else:
             self.cancel_button.configure(state="disabled")
+
+    def _conversion_is_active(self) -> bool:
+        if self.worker is not None and self.worker.is_alive():
+            return True
+        return any(state.conversion_active for state in self.project_states.values())
 
     def _on_closing(self) -> None:
         converting = self.worker is not None and self.worker.is_alive()
