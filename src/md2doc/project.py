@@ -68,6 +68,7 @@ class ProjectConfig:
     mermaid_theme: str = "default"
     mermaid_background: str = "white"
     mermaid_scale: float = 3.0
+    mermaid_min_dpi: float = 450.0
 
     @property
     def meta_dir(self) -> Path:
@@ -109,6 +110,7 @@ class ProjectConfig:
             "mermaid_theme": self.mermaid_theme,
             "mermaid_background": self.mermaid_background,
             "mermaid_scale": self.mermaid_scale,
+            "mermaid_min_dpi": self.mermaid_min_dpi,
         }
 
     @classmethod
@@ -131,6 +133,13 @@ class ProjectConfig:
                 mermaid_scale = 3.0
         except (ValueError, TypeError):
             mermaid_scale = 3.0
+        min_dpi_val = data.get("mermaid_min_dpi")
+        try:
+            mermaid_min_dpi = float(min_dpi_val) if min_dpi_val is not None else 450.0
+            if mermaid_min_dpi < 0.0:
+                mermaid_min_dpi = 450.0
+        except (ValueError, TypeError):
+            mermaid_min_dpi = 450.0
 
         return cls(
             name=str(data.get("name") or root.name),
@@ -156,6 +165,7 @@ class ProjectConfig:
             mermaid_theme=str(data.get("mermaid_theme") or "default"),
             mermaid_background=str(data.get("mermaid_background") or "white"),
             mermaid_scale=mermaid_scale,
+            mermaid_min_dpi=mermaid_min_dpi,
         )
 
     def save(self) -> None:
@@ -194,17 +204,23 @@ def load_project(root: Path | str) -> ProjectConfig:
     config = ProjectConfig.from_dict(data)
     # Clean up legacy configs on disk: persist a normalized copy when the stored
     # data predates the project kind, carries a stale format for its kind,
-    # or has a scale value of 0.0 / missing scale that needs migration.
+    # or has Mermaid sizing defaults that need migration.
     stored_scale = data.get("mermaid_scale")
     try:
         scale_needs_migration = stored_scale is None or float(stored_scale) == 0.0
     except (ValueError, TypeError):
         scale_needs_migration = True
+    stored_min_dpi = data.get("mermaid_min_dpi")
+    try:
+        min_dpi_needs_migration = stored_min_dpi is None or float(stored_min_dpi) < 0.0
+    except (ValueError, TypeError):
+        min_dpi_needs_migration = True
 
     if (
         data.get("kind") != config.kind
         or data.get("output_format") != config.output_format
         or scale_needs_migration
+        or min_dpi_needs_migration
     ):
         config.save()
     ProjectRegistry().add(config)

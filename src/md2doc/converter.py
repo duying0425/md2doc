@@ -100,6 +100,7 @@ class ConvertSettings:
     mermaid_theme: str = "default"
     mermaid_background: str = "white"
     mermaid_scale: float = 3.0
+    mermaid_min_dpi: float = 450.0
 
     def output_suffix(self) -> str:
         if self.kind == KIND_DOC2MD:
@@ -210,6 +211,7 @@ def settings_from_project(config: ProjectConfig, *, force: bool = False) -> Conv
         mermaid_theme=config.mermaid_theme,
         mermaid_background=config.mermaid_background,
         mermaid_scale=config.mermaid_scale,
+        mermaid_min_dpi=config.mermaid_min_dpi,
     )
 
 
@@ -478,6 +480,7 @@ def settings_signature(settings: ConvertSettings, project_root: Path | None = No
         "mermaid_theme": settings.mermaid_theme,
         "mermaid_background": settings.mermaid_background,
         "mermaid_scale": settings.mermaid_scale,
+        "mermaid_min_dpi": settings.mermaid_min_dpi,
         "mermaid_image_location": MERMAID_IMAGE_LOCATION_SIGNATURE,
     }
     encoded = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
@@ -1113,18 +1116,24 @@ function Image(el)
   local filepath = resolve_filepath(el.src)
   if not filepath then return el end
   
+  local lower_filepath = filepath:lower()
   local w, h = nil, nil
-  if string.match(filepath:lower(), "%.png$") then
+  if string.match(lower_filepath, "%.png$") then
     w, h = get_png_dimensions(filepath)
-  elseif string.match(filepath:lower(), "%.svg$") then
+  elseif string.match(lower_filepath, "%.svg$") then
     w, h = get_svg_dimensions(filepath)
   end
   
   if w and h then
     local scale = 1.0
+    local min_dpi = 0.0
     if string.match(filepath, "mermaid%-images") then
       scale = tonumber(os.getenv("MERMAID_FILTER_SCALE")) or 1.0
       if scale <= 0 then scale = 1.0 end
+      if string.match(lower_filepath, "%.png$") then
+        min_dpi = tonumber(os.getenv("MERMAID_FILTER_MIN_DPI")) or 0.0
+        if min_dpi < 0 then min_dpi = 0.0 end
+      end
     end
     
     local max_width_in = 6.0
@@ -1139,6 +1148,16 @@ function Image(el)
     end
     if display_height_in > max_height_in then
       scale_factor = math.min(scale_factor, max_height_in / display_height_in)
+    end
+    if min_dpi > 0 then
+      local max_width_by_dpi = w / min_dpi
+      local max_height_by_dpi = h / min_dpi
+      if display_width_in > max_width_by_dpi then
+        scale_factor = math.min(scale_factor, max_width_by_dpi / display_width_in)
+      end
+      if display_height_in > max_height_by_dpi then
+        scale_factor = math.min(scale_factor, max_height_by_dpi / display_height_in)
+      end
     end
     
     el.attributes['width'] = string.format("%.2fin", display_width_in * scale_factor)
@@ -1209,6 +1228,8 @@ def _mermaid_environment(settings: ConvertSettings) -> dict[str, str]:
     }
     if settings.mermaid_scale > 0:
         env["MERMAID_FILTER_SCALE"] = str(settings.mermaid_scale)
+    if settings.mermaid_min_dpi > 0:
+        env["MERMAID_FILTER_MIN_DPI"] = str(settings.mermaid_min_dpi)
     return env
 
 

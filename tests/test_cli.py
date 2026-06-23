@@ -53,6 +53,8 @@ class CliTests(unittest.TestCase):
                         "custom-pandoc",
                         "--mermaid-filter",
                         "custom-filter",
+                        "--mermaid-min-dpi",
+                        "360",
                         "--pandoc-arg=--standalone",
                     ]
                 )
@@ -68,6 +70,7 @@ class CliTests(unittest.TestCase):
             self.assertTrue(settings.number_sections)
             self.assertEqual(settings.pandoc_cmd, "custom-pandoc")
             self.assertEqual(settings.mermaid_filter_cmd, "custom-filter")
+            self.assertEqual(settings.mermaid_min_dpi, 360.0)
             self.assertIn("--standalone", settings.extra_pandoc_args)
 
     def test_scan_can_disable_recursive_search(self) -> None:

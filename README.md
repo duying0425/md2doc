@@ -140,7 +140,7 @@ Common `plan` and `convert` options:
 - `--toc`, `--toc-depth <n>`, `--number-sections`: document structure options.
 - `--title-page`, `--title`, `--subtitle`, `--author`, `--date`: metadata options.
 - `--reference-docx <file>`, `--default-font <name>`, `--font-size <n>`, `--table-borders template|bordered|plain`: DOCX styling options.
-- `--mermaid-format png|svg|pdf`, `--mermaid-theme <name>`, `--mermaid-background <value>`, `--mermaid-scale <n>`: Mermaid rendering options.
+- `--mermaid-format png|svg|pdf`, `--mermaid-theme <name>`, `--mermaid-background <value>`, `--mermaid-scale <n>`, `--mermaid-min-dpi <n>`: Mermaid rendering and sizing options.
 - `--pandoc <command>`, `--mermaid-filter <command>`: override tool commands or paths.
 - `--pandoc-arg=<arg>`: append a raw Pandoc argument. Repeat for multiple arguments.
 

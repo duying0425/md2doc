@@ -1282,6 +1282,7 @@ class SettingsDialog(tk.Toplevel):
         self.mermaid_theme_var = tk.StringVar(value=project.mermaid_theme)
         self.mermaid_background_var = tk.StringVar(value=project.mermaid_background)
         self.mermaid_scale_var = tk.StringVar(value=str(project.mermaid_scale or ""))
+        self.mermaid_min_dpi_var = tk.StringVar(value=str(project.mermaid_min_dpi))
 
         self._build()
         self._center()
@@ -1396,6 +1397,7 @@ class SettingsDialog(tk.Toplevel):
             ("Theme", self.mermaid_theme_var),
             ("Background", self.mermaid_background_var),
             ("Scale", self.mermaid_scale_var),
+            ("Min DPI", self.mermaid_min_dpi_var),
         ]
         for row, (label, variable) in enumerate(fields):
             ttk.Label(frame, text=label).grid(row=row, column=0, sticky="w", pady=self.parent._pad(4, 0))
@@ -1406,14 +1408,14 @@ class SettingsDialog(tk.Toplevel):
                 pady=self.parent._pad(4, 0),
             )
 
-        ttk.Label(frame, text="Format").grid(row=3, column=0, sticky="w", pady=self.parent._pad(8, 0))
+        ttk.Label(frame, text="Format").grid(row=4, column=0, sticky="w", pady=self.parent._pad(8, 0))
         ttk.Combobox(
             frame,
             textvariable=self.mermaid_format_var,
             values=("png", "svg", "pdf"),
             state="readonly",
             width=10,
-        ).grid(row=3, column=1, sticky="w", pady=self.parent._pad(8, 0))
+        ).grid(row=4, column=1, sticky="w", pady=self.parent._pad(8, 0))
 
     def _build_advanced_tab(self, frame: ttk.Frame) -> None:
         frame.columnconfigure(0, weight=1)
@@ -1450,6 +1452,7 @@ class SettingsDialog(tk.Toplevel):
         self.mermaid_theme_var.set(defaults.mermaid_theme)
         self.mermaid_background_var.set(defaults.mermaid_background)
         self.mermaid_scale_var.set(str(defaults.mermaid_scale or ""))
+        self.mermaid_min_dpi_var.set(str(defaults.mermaid_min_dpi))
         self.extra_args_text.delete("1.0", tk.END)
         self.extra_args_text.insert("1.0", " ".join(defaults.extra_pandoc_args))
 
@@ -1473,6 +1476,15 @@ class SettingsDialog(tk.Toplevel):
             )
             if mermaid_scale == 0.0 or self.mermaid_scale_var.get().strip() == "":
                 mermaid_scale = 3.0
+            mermaid_min_dpi = _parse_float(
+                self.mermaid_min_dpi_var.get(),
+                "Mermaid min DPI",
+                minimum=0.0,
+                maximum=2400.0,
+                allow_empty=True,
+            )
+            if self.mermaid_min_dpi_var.get().strip() == "":
+                mermaid_min_dpi = 450.0
         except ValueError as exc:
             messagebox.showerror("Settings", str(exc), parent=self)
             return
@@ -1491,6 +1503,7 @@ class SettingsDialog(tk.Toplevel):
         self.project.mermaid_theme = self.mermaid_theme_var.get().strip() or "default"
         self.project.mermaid_background = self.mermaid_background_var.get().strip() or "white"
         self.project.mermaid_scale = mermaid_scale
+        self.project.mermaid_min_dpi = mermaid_min_dpi
         self.project.extra_pandoc_args = extra_args
         self.project.save()
         ProjectRegistry().add(self.project)

@@ -255,6 +255,7 @@ class ConverterTests(unittest.TestCase):
                 mermaid_theme="forest",
                 mermaid_background="transparent",
                 mermaid_scale=2.5,
+                mermaid_min_dpi=360.0,
             )
 
             loaded = ProjectConfig.from_dict(project.to_dict())
@@ -267,6 +268,7 @@ class ConverterTests(unittest.TestCase):
             self.assertEqual(settings.table_borders, "bordered")
             self.assertEqual(settings.mermaid_format, "svg")
             self.assertEqual(settings.mermaid_scale, 2.5)
+            self.assertEqual(settings.mermaid_min_dpi, 360.0)
 
     def test_settings_signature_resolves_reference_docx_relative_to_project_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -327,16 +329,19 @@ class ConverterTests(unittest.TestCase):
 
         self.assertNotIn("MERMAID_FILTER_WIDTH", env)
         self.assertEqual(env["MERMAID_FILTER_SCALE"], "3.0")
+        self.assertEqual(env["MERMAID_FILTER_MIN_DPI"], "450.0")
         self.assertEqual(env["MERMAID_FILTER_FORMAT"], "png")
 
     def test_mermaid_environment_uses_custom_scale(self) -> None:
         env = _mermaid_environment(
             ConvertSettings(
                 mermaid_scale=2.5,
+                mermaid_min_dpi=360.0,
             )
         )
 
         self.assertEqual(env["MERMAID_FILTER_SCALE"], "2.5")
+        self.assertEqual(env["MERMAID_FILTER_MIN_DPI"], "360.0")
 
     def test_docx_image_paragraphs_are_centered(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -994,6 +999,67 @@ class LuaFilterTests(unittest.TestCase):
             res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(root), env=env)
             self.assertEqual(res.returncode, 0)
             self.assertIn('style="width:1in;height:1in"', res.stdout)
+
+    def test_mermaid_png_min_dpi_limits_a4_like_image_size(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image_dir = root / ".md2doc" / "mermaid-images" / "abc"
+            image_dir.mkdir(parents=True)
+            png_path = image_dir / "a4.png"
+            png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + (2400).to_bytes(4, 'big') + (3396).to_bytes(4, 'big')
+            png_path.write_bytes(png_bytes)
+
+            from md2doc.converter import _ensure_mermaid_fit_lua
+            lua_path = _ensure_mermaid_fit_lua(root)
+
+            md_path = root / "input.md"
+            md_path.write_text("![image](.md2doc/mermaid-images/abc/a4.png)", encoding="utf-8")
+
+            env = os.environ.copy()
+            env["MERMAID_FILTER_SCALE"] = "3"
+            env["MERMAID_FILTER_MIN_DPI"] = "600"
+
+            cmd = [
+                "pandoc",
+                str(md_path),
+                "--lua-filter",
+                str(lua_path),
+                "-t",
+                "html"
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(root), env=env)
+            self.assertEqual(res.returncode, 0)
+            self.assertIn('style="width:4in;height:5.66in"', res.stdout)
+
+    def test_mermaid_svg_ignores_min_dpi(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image_dir = root / ".md2doc" / "mermaid-images" / "abc"
+            image_dir.mkdir(parents=True)
+            svg_path = image_dir / "tall.svg"
+            svg_path.write_text('<svg viewBox="0 0 1000 2000"></svg>', encoding="utf-8")
+
+            from md2doc.converter import _ensure_mermaid_fit_lua
+            lua_path = _ensure_mermaid_fit_lua(root)
+
+            md_path = root / "input.md"
+            md_path.write_text("![image](.md2doc/mermaid-images/abc/tall.svg)", encoding="utf-8")
+
+            env = os.environ.copy()
+            env["MERMAID_FILTER_SCALE"] = "1"
+            env["MERMAID_FILTER_MIN_DPI"] = "1000"
+
+            cmd = [
+                "pandoc",
+                str(md_path),
+                "--lua-filter",
+                str(lua_path),
+                "-t",
+                "html"
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(root), env=env)
+            self.assertEqual(res.returncode, 0)
+            self.assertIn('style="width:4.25in;height:8.5in"', res.stdout)
 
 
 if __name__ == "__main__":
