@@ -69,6 +69,7 @@ class ProjectConfig:
     mermaid_background: str = "white"
     mermaid_scale: float = 3.0
     mermaid_min_dpi: float = 450.0
+    hr_to_pagebreak: bool = False
 
     @property
     def meta_dir(self) -> Path:
@@ -111,6 +112,7 @@ class ProjectConfig:
             "mermaid_background": self.mermaid_background,
             "mermaid_scale": self.mermaid_scale,
             "mermaid_min_dpi": self.mermaid_min_dpi,
+            "hr_to_pagebreak": self.hr_to_pagebreak,
         }
 
     @classmethod
@@ -166,6 +168,7 @@ class ProjectConfig:
             mermaid_background=str(data.get("mermaid_background") or "white"),
             mermaid_scale=mermaid_scale,
             mermaid_min_dpi=mermaid_min_dpi,
+            hr_to_pagebreak=bool(data.get("hr_to_pagebreak", False)),
         )
 
     def save(self) -> None:

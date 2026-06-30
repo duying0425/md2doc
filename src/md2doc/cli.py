@@ -182,6 +182,12 @@ def _add_conversion_arguments(parser: argparse.ArgumentParser, *, dry_run: bool)
     parser.add_argument("--mermaid-background", default=None)
     parser.add_argument("--mermaid-scale", type=float, default=None)
     parser.add_argument("--mermaid-min-dpi", type=float, default=None)
+    parser.add_argument(
+        "--hr-to-pagebreak",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Convert horizontal rules into page breaks in the document.",
+    )
     parser.add_argument("--pandoc", dest="pandoc_cmd", default=None)
     parser.add_argument("--mermaid-filter", dest="mermaid_filter_cmd", default=None)
     parser.add_argument(
@@ -311,6 +317,7 @@ def _settings_from_args(config: ProjectConfig, args: argparse.Namespace) -> Conv
         "mermaid_min_dpi",
         "pandoc_cmd",
         "mermaid_filter_cmd",
+        "hr_to_pagebreak",
     ):
         value = getattr(args, name, None)
         if value is not None:

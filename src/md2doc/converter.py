@@ -82,6 +82,7 @@ class ConvertSettings:
     markitdown_cmd: str = "markitdown"
     quarto_cmd: str = "quarto"
     extra_pandoc_args: tuple[str, ...] = ()
+    hr_to_pagebreak: bool = False
     force: bool = False
     skip_unchanged: bool = True
     toc: bool = False
@@ -194,6 +195,7 @@ def settings_from_project(config: ProjectConfig, *, force: bool = False) -> Conv
         output_dir=config.output_path,
         recursive=config.recursive,
         extra_pandoc_args=tuple(config.extra_pandoc_args),
+        hr_to_pagebreak=config.hr_to_pagebreak,
         force=force,
         toc=config.toc,
         toc_depth=config.toc_depth,
@@ -463,6 +465,7 @@ def settings_signature(settings: ConvertSettings, project_root: Path | None = No
         "markitdown_cmd": settings.markitdown_cmd,
         "quarto_cmd": settings.quarto_cmd,
         "extra_pandoc_args": list(settings.extra_pandoc_args),
+        "hr_to_pagebreak": settings.hr_to_pagebreak,
         "toc": settings.toc,
         "toc_depth": settings.toc_depth,
         "title_page": settings.title_page,
@@ -1175,6 +1178,29 @@ def _ensure_mermaid_fit_lua(project_root: Path) -> Path:
     return lua_path
 
 
+HR_TO_PAGEBREAK_LUA_CONTENT = r"""-- hr-to-pagebreak.lua
+function HorizontalRule(el)
+  if FORMAT:match('latex') then
+    return pandoc.RawBlock('latex', '\\newpage')
+  elseif FORMAT:match('html') then
+    return pandoc.RawBlock('html', '<div style="page-break-after: always;"></div>')
+  elseif FORMAT:match('docx') then
+    return pandoc.RawBlock('openxml', '<w:p><w:r><w:br w:type="page"/></w:r></w:p>')
+  else
+    return el
+  end
+end
+"""
+
+
+def _ensure_hr_to_pagebreak_lua(project_root: Path) -> Path:
+    meta_dir = project_root / PROJECT_DIR_NAME
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    lua_path = meta_dir / "hr-to-pagebreak.lua"
+    lua_path.write_text(HR_TO_PAGEBREAK_LUA_CONTENT, encoding="utf-8")
+    return lua_path
+
+
 def _pandoc_command(project_root: Path, item: PlanItem, settings: ConvertSettings) -> list[str]:
     resource_path = os.pathsep.join([str(item.source.parent), str(project_root)])
     pandoc_cmd = _resolve_command(settings.pandoc_cmd)
@@ -1190,8 +1216,11 @@ def _pandoc_command(project_root: Path, item: PlanItem, settings: ConvertSetting
         mermaid_filter_cmd[0],
         *mermaid_filter_cmd[1:],
         f"--lua-filter={lua_filter_path}",
-        f"--resource-path={resource_path}",
     ]
+    if settings.hr_to_pagebreak:
+        hr_lua_path = _ensure_hr_to_pagebreak_lua(project_root)
+        cmd.append(f"--lua-filter={hr_lua_path}")
+    cmd.append(f"--resource-path={resource_path}")
     cmd.extend(_pandoc_format_args(project_root, item, settings))
     cmd.extend(settings.extra_pandoc_args)
     return cmd

@@ -1283,6 +1283,7 @@ class SettingsDialog(tk.Toplevel):
         self.mermaid_background_var = tk.StringVar(value=project.mermaid_background)
         self.mermaid_scale_var = tk.StringVar(value=str(project.mermaid_scale or ""))
         self.mermaid_min_dpi_var = tk.StringVar(value=str(project.mermaid_min_dpi))
+        self.hr_to_pagebreak_var = tk.BooleanVar(value=project.hr_to_pagebreak)
 
         self._build()
         self._center()
@@ -1390,6 +1391,11 @@ class SettingsDialog(tk.Toplevel):
             state="readonly",
             width=12,
         ).grid(row=3, column=1, sticky="w", pady=self.parent._pad(8, 0))
+        ttk.Checkbutton(
+            frame,
+            text="Convert horizontal rules to page breaks",
+            variable=self.hr_to_pagebreak_var,
+        ).grid(row=4, column=0, columnspan=4, sticky="w", pady=self.parent._pad(12, 0))
 
     def _build_mermaid_tab(self, frame: ttk.Frame) -> None:
         frame.columnconfigure(1, weight=1)
@@ -1448,6 +1454,7 @@ class SettingsDialog(tk.Toplevel):
         self.default_font_var.set(defaults.default_font)
         self.default_font_size_var.set(str(defaults.default_font_size or ""))
         self.table_borders_var.set(defaults.table_borders)
+        self.hr_to_pagebreak_var.set(defaults.hr_to_pagebreak)
         self.mermaid_format_var.set(defaults.mermaid_format)
         self.mermaid_theme_var.set(defaults.mermaid_theme)
         self.mermaid_background_var.set(defaults.mermaid_background)
@@ -1504,6 +1511,7 @@ class SettingsDialog(tk.Toplevel):
         self.project.mermaid_background = self.mermaid_background_var.get().strip() or "white"
         self.project.mermaid_scale = mermaid_scale
         self.project.mermaid_min_dpi = mermaid_min_dpi
+        self.project.hr_to_pagebreak = self.hr_to_pagebreak_var.get()
         self.project.extra_pandoc_args = extra_args
         self.project.save()
         ProjectRegistry().add(self.project)

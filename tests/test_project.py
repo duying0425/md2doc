@@ -19,6 +19,14 @@ from md2doc.project import (
 
 
 class ProjectKindTests(unittest.TestCase):
+    def test_hr_to_pagebreak_serialization(self) -> None:
+        config = ProjectConfig.from_dict({"name": "Docs", "root": "/tmp/docs", "hr_to_pagebreak": True})
+        self.assertTrue(config.hr_to_pagebreak)
+        self.assertTrue(config.to_dict()["hr_to_pagebreak"])
+
+        config_default = ProjectConfig.from_dict({"name": "Docs", "root": "/tmp/docs"})
+        self.assertFalse(config_default.hr_to_pagebreak)
+
     def test_legacy_config_without_kind_defaults_to_md2doc(self) -> None:
         config = ProjectConfig.from_dict({"name": "Docs", "root": "/tmp/docs", "output_format": "docx"})
 
