@@ -2,17 +2,21 @@
 
 [简体中文](README_zh.md) | [English](README.md)
 
-支持三类项目格式的本地文档转换工具：
+支持四类项目格式的本地文档转换工具：
 1. **Markdown 转 Word 文档** (`md2doc`)：使用 Pandoc 和 `mermaid-filter` 将 Markdown (`.md`, `.markdown`) 转换为 DOCX。
 2. **Office 文档转 Markdown** (`doc2md`)：使用 MarkItDown 将 Word、PowerPoint 和 Excel (`.docx`, `.pptx`, `.xlsx` 等) 转换为 Markdown。
 3. **Quarto 转 PowerPoint** (`qmd2ppt`)：使用 Quarto CLI 将 Quarto Markdown (`.qmd`) 转换为 PowerPoint 演示文稿 (`.pptx`)。
+4. **HTML 转单页 PDF** (`html2pdf`)：在 Chromium 中渲染 HTML (`.html`, `.htm`) 并根据渲染后的 HTML 实际尺寸导出自定义大小的单页 PDF。
 
 ## 功能特性
 
-- **从文件夹创建项目**，支持选择三类转换项目类型。
-- **递归扫描源文件**（Markdown 项目扫描 `.md`/`.markdown`，Office 项目扫描 `.docx`/`.pptx`/等，Quarto 项目扫描 `.qmd`）。
+- **从文件夹创建项目**，支持选择四类转换项目类型。
+- **递归扫描源文件**（Markdown 项目扫描 `.md`/`.markdown`，Office 项目扫描 `.docx`/`.pptx`/等，Quarto 项目扫描 `.qmd`，HTML 项目扫描 `.html`/`.htm`）。
 - **转换单个选中文件或批量转换文件**。
-- **集成外部工具进行渲染**（Markdown 项目结合 Pandoc 与 `mermaid-filter` 渲染 Mermaid 并导出 DOCX，Quarto 项目使用 Quarto CLI 渲染 PPTX 幻灯片）。
+- **集成外部工具进行渲染**：
+  - Markdown 项目结合 Pandoc 与 `mermaid-filter` 渲染 Mermaid 并导出 DOCX。
+  - Quarto 项目使用 Quarto CLI 渲染 PPTX 幻灯片。
+  - HTML 项目使用 Playwright / Chromium 将页面渲染并导出为自适应尺寸的单页 PDF。
 - **智能跳过未修改的源文件**（当已有历史输出且源文件未更改时）。
 - **个性化项目配置参数**。
 - **在 `.md2doc/project.json` 中存储项目元数据**。
@@ -32,11 +36,11 @@ docs/guide.md   -> docs/guide.docx
 在桌面应用中打开 **Settings（设置）** 可以配置：
 
 - **文档（Document）**：目录、目录深度、章节编号、标题、副标题、作者和日期。
-- **Word**：`reference.docx`、默认字体、默认字号和表格边框样式。
+- **Word**：`reference.docx`、默认字体（提供预设常用字体下拉框）、表格边框样式以及是否将水平分割线 (`---`) 转换为分页符。
 - **Mermaid**：图片格式、主题和背景。
 - **高级（Advanced）**：额外的 Pandoc 参数。
 
-对于 DOCX 格式，选中的 `reference.docx` 在 Word 特征样式上具有最高优先级。如果未选择引用文件，md2doc 可以根据配置的字体、字号和表格边框选项自动生成 `.md2doc/generated-reference.docx`。
+对于 DOCX 格式，选中的 `reference.docx` 在 Word 特征样式上具有最高优先级。如果未选择引用文件，md2doc 可以根据配置的字体和表格边框选项自动生成 `.md2doc/generated-reference.docx`。
 
 转换完成后，DOCX 中的图片段落会自动居中对齐。
 
@@ -51,6 +55,11 @@ docs/guide.md   -> docs/guide.docx
   ```
 - **Office 文档转 Markdown**：必需的 Python 库 `markitdown` 会在安装项目包时作为依赖自动安装。
 - **Quarto 转 PowerPoint**：从 [quarto.org](https://quarto.org/docs/get-started/) 安装 Quarto CLI。
+- **HTML 转 PDF**：安装 Python `playwright` 库。md2doc 会优先使用已安装的 Microsoft Edge 或 Google Chrome；如果均不可用，请安装 Playwright Chromium：
+  ```powershell
+  python -m pip install playwright
+  python -m playwright install chromium
+  ```
 
 即使未安装这些工具，应用依然可以打开并扫描项目。
 
@@ -90,6 +99,8 @@ python -m md2doc plan C:\docs
 python -m md2doc convert C:\docs --format docx
 python -m md2doc convert C:\docs README.md docs\guide.md --format docx --force
 python -m md2doc convert C:\docs\README.md --format docx --output-dir C:\docs\build
+python -m md2doc init C:\pages --kind html2pdf
+python -m md2doc convert C:\pages\poster.html
 python -m md2doc deps
 ```
 
@@ -100,11 +111,11 @@ python -m md2doc deps
 ### 命令列表
 
 - `md2doc` 或 `md2doc gui`：打开桌面应用。
-- `md2doc init <folder>`：创建 `.md2doc/project.json`，可通过 `--kind md2doc|doc2md|qmd2ppt` 参数指定类型。
+- `md2doc init <folder>`：创建 `.md2doc/project.json`，可通过 `--kind md2doc|doc2md|qmd2ppt|html2pdf` 参数指定类型。
 - `md2doc scan <folder>`：列出项目中的源文件。
 - `md2doc plan <folder-or-file> [files...]`：打印转换计划。
 - `md2doc convert <folder-or-file> [files...]`：执行文档转换。
-- `md2doc deps`：检查 Markdown 转换工具（Pandoc 和 `mermaid-filter`）的安装状态。
+- `md2doc deps`：检查 Markdown 转换工具（Pandoc 和 `mermaid-filter`）的安装状态。若使用 `--kind html2pdf` 参数，可检查 Playwright 及浏览器可用性。
 
 `convert` 和 `plan` 既可以接收项目文件夹，也可以接收单个 Markdown 文件。当指定文件夹时，可选的文件参数会解析为相对于项目文件夹的相对路径：
 
@@ -125,7 +136,7 @@ md2doc convert C:\docs\README.md --format docx
 - `--dry-run`：从 `convert` 打印计划而不运行 Pandoc。
 - `--toc`、`--toc-depth <n>`、`--number-sections`：文档结构选项（目录、目录深度、章节编号）。
 - `--title-page`、`--title`、`--subtitle`、`--author`、`--date`：文档元数据选项。
-- `--reference-docx <file>`、`--default-font <name>`、`--font-size <n>`、`--table-borders template|bordered|plain`：DOCX 样式选项。
+- `--reference-docx <file>`、`--default-font <name>`、`--font-size <n>`（仅限命令行）、`--table-borders template|bordered|plain`、`--hr-to-pagebreak` / `--no-hr-to-pagebreak`：DOCX 样式与布局选项。
 - `--mermaid-format png|svg|pdf`、`--mermaid-theme <name>`、`--mermaid-background <value>`、`--mermaid-scale <n>`、`--mermaid-min-dpi <n>`：Mermaid 渲染和尺寸选项。
 - `--pandoc <command>`、`--mermaid-filter <command>`：覆盖工具的执行命令或路径。
 - `--pandoc-arg=<arg>`：追加原始 Pandoc 参数。如需多个参数请重复使用该选项。

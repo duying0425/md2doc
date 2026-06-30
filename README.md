@@ -35,11 +35,11 @@ Set the Output field or `--output-dir` if you want a separate output folder.
 Open **Settings** in the desktop app to configure:
 
 - Document: table of contents, TOC depth, section numbering, title, subtitle, author, and date.
-- Word: `reference.docx`, default font, default font size, and table border style.
+- Word: `reference.docx`, default font (with preset choices), table border style, and an option to convert horizontal rules to page breaks.
 - Mermaid: format, theme, and background.
 - Advanced: extra Pandoc arguments.
 
-For DOCX, a selected `reference.docx` has priority for Word-specific styling. If no reference file is selected, md2doc can generate `.md2doc/generated-reference.docx` for the configured font, font size, and table border options.
+For DOCX, a selected `reference.docx` has priority for Word-specific styling. If no reference file is selected, md2doc can generate `.md2doc/generated-reference.docx` for the configured font and table border options.
 DOCX image paragraphs are centered automatically after conversion.
 
 ## Requirements
@@ -139,7 +139,7 @@ Common `plan` and `convert` options:
 - `--dry-run`: print the plan from `convert` without running Pandoc.
 - `--toc`, `--toc-depth <n>`, `--number-sections`: document structure options.
 - `--title-page`, `--title`, `--subtitle`, `--author`, `--date`: metadata options.
-- `--reference-docx <file>`, `--default-font <name>`, `--font-size <n>`, `--table-borders template|bordered|plain`: DOCX styling options.
+- `--reference-docx <file>`, `--default-font <name>`, `--font-size <n>` (CLI only), `--table-borders template|bordered|plain`, `--hr-to-pagebreak` / `--no-hr-to-pagebreak`: DOCX styling and layout options.
 - `--mermaid-format png|svg|pdf`, `--mermaid-theme <name>`, `--mermaid-background <value>`, `--mermaid-scale <n>`, `--mermaid-min-dpi <n>`: Mermaid rendering and sizing options.
 - `--pandoc <command>`, `--mermaid-filter <command>`: override tool commands or paths.
 - `--pandoc-arg=<arg>`: append a raw Pandoc argument. Repeat for multiple arguments.
