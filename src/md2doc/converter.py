@@ -1761,6 +1761,8 @@ def _decide_action(
     if not record:
         output_mtime = output.stat().st_mtime_ns
         if output_mtime >= fingerprint.mtime_ns:
+            if _requires_recorded_settings_to_skip(settings):
+                return "convert", "conversion settings untracked"
             return "skip", "output is newer than source"
         return "convert", "no history and source is newer"
     if record.get("source_sha256") != fingerprint.sha256:
@@ -1768,6 +1770,24 @@ def _decide_action(
     if record.get("settings_signature") != signature:
         return "convert", "conversion settings changed"
     return "skip", "unchanged"
+
+
+def _requires_recorded_settings_to_skip(settings: ConvertSettings) -> bool:
+    return bool(
+        settings.extra_pandoc_args
+        or settings.toc
+        or settings.title_page
+        or settings.number_sections
+        or settings.reference_docx.strip()
+        or settings.default_font.strip()
+        or settings.default_font_size > 0
+        or settings.table_borders in {"bordered", "plain"}
+        or settings.mermaid_format != "png"
+        or settings.mermaid_theme != "default"
+        or settings.mermaid_background != "white"
+        or settings.mermaid_scale != 3.0
+        or settings.mermaid_min_dpi != 450.0
+    )
 
 
 def _is_same_or_child(path: Path, maybe_parent: Path | None) -> bool:

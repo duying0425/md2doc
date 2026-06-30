@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -19,6 +21,7 @@ from md2doc.converter import (
     _markitdown_command,
     _mermaid_environment,
     _pandoc_command,
+    _patch_reference_docx,
     _resolve_command,
     check_dependencies,
     file_fingerprint,
@@ -117,6 +120,29 @@ class ConverterTests(unittest.TestCase):
 
             self.assertEqual(item.action, "skip")
             self.assertEqual(item.reason, "output is newer than source")
+
+    def test_plan_converts_existing_output_without_manifest_when_reference_docx_is_set(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "a.md"
+            output = root / "output" / "a.docx"
+            reference = root / "reference.docx"
+            source.write_text("# A", encoding="utf-8")
+            reference.write_text("template", encoding="utf-8")
+            output.parent.mkdir()
+            output.write_text("generated", encoding="utf-8")
+            os.utime(source, (100, 100))
+            os.utime(output, (200, 200))
+
+            item = plan_conversions(
+                root,
+                [source],
+                ConvertSettings(output_dir=root / "output", reference_docx=str(reference)),
+                BuildManifest(path=root / ".md2doc" / "manifest.json"),
+            )[0]
+
+            self.assertEqual(item.action, "convert")
+            self.assertEqual(item.reason, "conversion settings untracked")
 
     def test_plan_converts_when_manifest_hash_changes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -389,6 +415,64 @@ class ConverterTests(unittest.TestCase):
                 styles = docx.read("word/styles.xml").decode("utf-8")
             self.assertIn('w:ascii="Aptos"', styles)
             self.assertIn('w:val="22"', styles)
+            self.assertIn("<w:tblBorders>", styles)
+
+    @unittest.skipUnless(shutil.which("pandoc"), "Pandoc is required for DOCX style integration test")
+    def test_run_conversions_applies_reference_docx_styles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "a.md"
+            reference = root / "reference.docx"
+            filter_script = root / "pass_filter.py"
+            filter_command = root / "pass_filter.cmd"
+            source.write_text(
+                "\n".join(
+                    [
+                        "# Heading",
+                        "",
+                        "Body text.",
+                        "",
+                        "| A | B |",
+                        "|---|---|",
+                        "| 1 | 2 |",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            filter_script.write_text("import sys\nsys.stdout.write(sys.stdin.read())\n", encoding="utf-8")
+            filter_command.write_text(
+                f'@echo off\n"{sys.executable}" "{filter_script}" %*\n',
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run(
+                ["pandoc", "--print-default-data-file", "reference.docx"],
+                capture_output=True,
+                check=True,
+            )
+            reference.write_bytes(completed.stdout)
+            _patch_reference_docx(
+                reference,
+                ConvertSettings(default_font="Aptos", default_font_size=11, table_borders="bordered"),
+            )
+            _add_normal_style_color(reference, "C00000")
+
+            results = run_conversions(
+                root,
+                [source],
+                ConvertSettings(
+                    output_dir=root,
+                    reference_docx=str(reference),
+                    mermaid_filter_cmd=str(filter_command),
+                ),
+            )
+
+            self.assertEqual(results[0].status, "converted")
+            with zipfile.ZipFile(root / "a.docx", "r") as docx:
+                styles = docx.read("word/styles.xml").decode("utf-8")
+            self.assertIn('w:ascii="Aptos"', styles)
+            self.assertIn('w:val="22"', styles)
+            self.assertIn('w:color w:val="C00000"', styles)
             self.assertIn("<w:tblBorders>", styles)
 
     def test_resolve_pandoc_from_winget_package_when_path_is_stale(self) -> None:
@@ -762,6 +846,36 @@ def _minimal_reference_docx() -> bytes:
     finally:
         if path.exists():
             path.unlink()
+
+
+def _add_normal_style_color(docx_path: Path, color: str) -> None:
+    namespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    w = f"{{{namespace}}}"
+    with zipfile.ZipFile(docx_path, "r") as source:
+        entries = {name: source.read(name) for name in source.namelist()}
+
+    root = ET.fromstring(entries["word/styles.xml"])
+    normal = None
+    for style in root.findall(f"{w}style"):
+        if style.get(f"{w}type") == "paragraph" and style.get(f"{w}styleId") == "Normal":
+            normal = style
+            break
+    if normal is None:
+        normal = ET.SubElement(root, f"{w}style")
+        normal.set(f"{w}type", "paragraph")
+        normal.set(f"{w}styleId", "Normal")
+    rpr = normal.find(f"{w}rPr")
+    if rpr is None:
+        rpr = ET.SubElement(normal, f"{w}rPr")
+    color_el = rpr.find(f"{w}color")
+    if color_el is None:
+        color_el = ET.SubElement(rpr, f"{w}color")
+    color_el.set(f"{w}val", color)
+    entries["word/styles.xml"] = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    with zipfile.ZipFile(docx_path, "w", zipfile.ZIP_DEFLATED) as target:
+        for name, data in entries.items():
+            target.writestr(name, data)
 
 
 class Qmd2PptConverterTests(unittest.TestCase):

@@ -1682,6 +1682,7 @@ def _reason_label(reason: str) -> str:
         "no history and source is newer": "Source is newer than output",
         "source changed": "Source changed",
         "conversion settings changed": "Conversion settings changed",
+        "conversion settings untracked": "Conversion settings need to be applied",
         "unchanged": "Output is up to date",
         "forced": "Force conversion enabled",
         "skip disabled": "Smart skip disabled",
