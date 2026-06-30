@@ -1175,6 +1175,86 @@ class LuaFilterTests(unittest.TestCase):
             self.assertEqual(res.returncode, 0)
             self.assertIn('style="width:4.25in;height:8.5in"', res.stdout)
 
+    @unittest.skipUnless(shutil.which("pandoc"), "Pandoc is required for hr-to-pagebreak tests")
+    def test_hr_to_pagebreak_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            md_path = root / "input.md"
+            md_path.write_text("Hello\n\n---\n\nWorld", encoding="utf-8")
+
+            from md2doc.converter import _ensure_hr_to_pagebreak_lua
+            lua_path = _ensure_hr_to_pagebreak_lua(root)
+
+            # Test HTML output
+            cmd_html = [
+                "pandoc",
+                str(md_path),
+                "--lua-filter",
+                str(lua_path),
+                "-t",
+                "html"
+            ]
+            res_html = subprocess.run(cmd_html, capture_output=True, text=True, cwd=str(root))
+            self.assertEqual(res_html.returncode, 0)
+            self.assertIn('<div style="page-break-after: always;"></div>', res_html.stdout)
+            self.assertNotIn("<hr", res_html.stdout)
+
+            # Test LaTeX output
+            cmd_latex = [
+                "pandoc",
+                str(md_path),
+                "--lua-filter",
+                str(lua_path),
+                "-t",
+                "latex"
+            ]
+            res_latex = subprocess.run(cmd_latex, capture_output=True, text=True, cwd=str(root))
+            self.assertEqual(res_latex.returncode, 0)
+            self.assertIn('\\newpage', res_latex.stdout)
+
+    @unittest.skipUnless(shutil.which("pandoc"), "Pandoc is required for DOCX integration test")
+    def test_run_conversions_with_hr_to_pagebreak(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "a.md"
+            source.write_text("Hello\n\n---\n\nWorld", encoding="utf-8")
+
+            # Run conversion with hr_to_pagebreak=True to docx
+            results = run_conversions(
+                root,
+                [source],
+                ConvertSettings(
+                    output_dir=root,
+                    hr_to_pagebreak=True,
+                ),
+            )
+            self.assertEqual(results[0].status, "converted")
+            
+            output_file = results[0].item.output
+            self.assertTrue(output_file.exists())
+            
+            # Verify page break exists in docx zip container
+            with zipfile.ZipFile(output_file) as docx:
+                document = docx.read("word/document.xml").decode("utf-8")
+            self.assertIn('<w:br w:type="page"/>', document)
+
+            # Run conversion with hr_to_pagebreak=False to docx
+            results_no_pb = run_conversions(
+                root,
+                [source],
+                ConvertSettings(
+                    output_dir=root,
+                    hr_to_pagebreak=False,
+                ),
+            )
+            self.assertEqual(results_no_pb[0].status, "converted")
+            output_file_no_pb = results_no_pb[0].item.output
+            
+            with zipfile.ZipFile(output_file_no_pb) as docx:
+                document_no_pb = docx.read("word/document.xml").decode("utf-8")
+            self.assertNotIn('<w:br w:type="page"/>', document_no_pb)
+
 
 if __name__ == "__main__":
     unittest.main()
+

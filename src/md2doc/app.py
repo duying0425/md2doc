@@ -1276,7 +1276,6 @@ class SettingsDialog(tk.Toplevel):
         self.number_sections_var = tk.BooleanVar(value=project.number_sections)
         self.reference_docx_var = tk.StringVar(value=project.reference_docx)
         self.default_font_var = tk.StringVar(value=project.default_font)
-        self.default_font_size_var = tk.StringVar(value=str(project.default_font_size or ""))
         self.table_borders_var = tk.StringVar(value=project.table_borders)
         self.mermaid_format_var = tk.StringVar(value=project.mermaid_format)
         self.mermaid_theme_var = tk.StringVar(value=project.mermaid_theme)
@@ -1367,7 +1366,22 @@ class SettingsDialog(tk.Toplevel):
         )
 
         ttk.Label(frame, text="Default font").grid(row=1, column=0, sticky="w", pady=self.parent._pad(16, 0))
-        ttk.Entry(frame, textvariable=self.default_font_var).grid(
+        ttk.Combobox(
+            frame,
+            textvariable=self.default_font_var,
+            values=(
+                "",
+                "Microsoft YaHei",
+                "SimSun",
+                "SimHei",
+                "KaiTi",
+                "FangSong",
+                "Arial",
+                "Times New Roman",
+                "Calibri",
+                "Segoe UI",
+            ),
+        ).grid(
             row=1,
             column=1,
             columnspan=3,
@@ -1375,27 +1389,19 @@ class SettingsDialog(tk.Toplevel):
             pady=self.parent._pad(16, 0),
         )
 
-        ttk.Label(frame, text="Font size").grid(row=2, column=0, sticky="w", pady=self.parent._pad(8, 0))
-        ttk.Spinbox(frame, from_=0, to=72, textvariable=self.default_font_size_var, width=8).grid(
-            row=2,
-            column=1,
-            sticky="w",
-            pady=self.parent._pad(8, 0),
-        )
-
-        ttk.Label(frame, text="Table borders").grid(row=3, column=0, sticky="w", pady=self.parent._pad(8, 0))
+        ttk.Label(frame, text="Table borders").grid(row=2, column=0, sticky="w", pady=self.parent._pad(8, 0))
         ttk.Combobox(
             frame,
             textvariable=self.table_borders_var,
             values=("template", "bordered", "plain"),
             state="readonly",
             width=12,
-        ).grid(row=3, column=1, sticky="w", pady=self.parent._pad(8, 0))
+        ).grid(row=2, column=1, sticky="w", pady=self.parent._pad(8, 0))
         ttk.Checkbutton(
             frame,
             text="Convert horizontal rules to page breaks",
             variable=self.hr_to_pagebreak_var,
-        ).grid(row=4, column=0, columnspan=4, sticky="w", pady=self.parent._pad(12, 0))
+        ).grid(row=3, column=0, columnspan=4, sticky="w", pady=self.parent._pad(12, 0))
 
     def _build_mermaid_tab(self, frame: ttk.Frame) -> None:
         frame.columnconfigure(1, weight=1)
@@ -1452,7 +1458,6 @@ class SettingsDialog(tk.Toplevel):
         self.number_sections_var.set(defaults.number_sections)
         self.reference_docx_var.set(defaults.reference_docx)
         self.default_font_var.set(defaults.default_font)
-        self.default_font_size_var.set(str(defaults.default_font_size or ""))
         self.table_borders_var.set(defaults.table_borders)
         self.hr_to_pagebreak_var.set(defaults.hr_to_pagebreak)
         self.mermaid_format_var.set(defaults.mermaid_format)
@@ -1467,13 +1472,7 @@ class SettingsDialog(tk.Toplevel):
         try:
             extra_args = _split_extra_args(self.extra_args_text.get("1.0", "end").strip())
             self.project.toc_depth = _parse_int(self.toc_depth_var.get(), "TOC depth", minimum=1, maximum=6)
-            self.project.default_font_size = _parse_int(
-                self.default_font_size_var.get(),
-                "Font size",
-                minimum=0,
-                maximum=72,
-                allow_empty=True,
-            )
+            self.project.default_font_size = 0
             mermaid_scale = _parse_float(
                 self.mermaid_scale_var.get(),
                 "Mermaid scale",
