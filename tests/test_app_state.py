@@ -3,9 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from md2doc.app import Md2DocApp, ProjectState
 from md2doc.converter import FileFingerprint, PlanItem
+from md2doc.project import CURRENT_PROJECT_CONFIG_VERSION, ProjectConfig
 
 
 class FakeButton:
@@ -89,6 +91,7 @@ class AppStateTests(unittest.TestCase):
     def make_app(self) -> Md2DocApp:
         app = object.__new__(Md2DocApp)
         app.project_states = {}
+        app.config_upgrade_notices = set()
         app.worker = None
         app.scan_active = False
         app.scan_generation = 0
@@ -152,6 +155,24 @@ class AppStateTests(unittest.TestCase):
             self.assertEqual(state.plan_by_id, {"0": existing})
             self.assertEqual(state.item_states[str(existing.source)], ("[RUNNING]", "Running Pandoc", "running"))
             self.assertFalse(state.scan_active)
+
+    def test_notify_project_config_upgrade_shows_once_per_project(self) -> None:
+        app = self.make_app()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = ProjectConfig(
+                name="Docs",
+                root=root,
+                config_version=CURRENT_PROJECT_CONFIG_VERSION,
+                loaded_config_version=1,
+                config_was_migrated=True,
+            )
+
+            with patch("md2doc.app.messagebox.showinfo") as showinfo:
+                Md2DocApp._notify_project_config_upgrade(app, project)
+                Md2DocApp._notify_project_config_upgrade(app, project)
+
+            self.assertEqual(showinfo.call_count, 1)
 
 
 if __name__ == "__main__":

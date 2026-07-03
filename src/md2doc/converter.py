@@ -102,6 +102,9 @@ class ConvertSettings:
     mermaid_background: str = "white"
     mermaid_scale: float = 3.0
     mermaid_min_dpi: float = 450.0
+    figure_numbering: bool = False
+    figure_prefix: str = "图"
+    figure_caption_position: str = "below"
 
     def output_suffix(self) -> str:
         if self.kind == KIND_DOC2MD:
@@ -214,6 +217,9 @@ def settings_from_project(config: ProjectConfig, *, force: bool = False) -> Conv
         mermaid_background=config.mermaid_background,
         mermaid_scale=config.mermaid_scale,
         mermaid_min_dpi=config.mermaid_min_dpi,
+        figure_numbering=config.figure_numbering,
+        figure_prefix=config.figure_prefix,
+        figure_caption_position=config.figure_caption_position,
     )
 
 
@@ -484,6 +490,9 @@ def settings_signature(settings: ConvertSettings, project_root: Path | None = No
         "mermaid_background": settings.mermaid_background,
         "mermaid_scale": settings.mermaid_scale,
         "mermaid_min_dpi": settings.mermaid_min_dpi,
+        "figure_numbering": settings.figure_numbering,
+        "figure_prefix": settings.figure_prefix,
+        "figure_caption_position": settings.figure_caption_position,
         "mermaid_image_location": MERMAID_IMAGE_LOCATION_SIGNATURE,
     }
     encoded = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
@@ -1178,6 +1187,133 @@ def _ensure_mermaid_fit_lua(project_root: Path) -> Path:
     return lua_path
 
 
+FIGURE_CAPTION_LUA_TEMPLATE = r"""-- figure-caption.lua
+local configured_prefix = __MD2DOC_FIGURE_PREFIX__
+local configured_caption_position = __MD2DOC_FIGURE_CAPTION_POSITION__
+local figure_count = 0
+
+local function trim(str)
+  if not str then return "" end
+  return (str:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function xml_escape(str)
+  str = tostring(str or "")
+  str = str:gsub("&", "&amp;")
+  str = str:gsub("<", "&lt;")
+  str = str:gsub(">", "&gt;")
+  return str
+end
+
+local function attr_escape(str)
+  str = xml_escape(str)
+  str = str:gsub('"', "&quot;")
+  return str
+end
+
+local function caption_to_text(caption)
+  if not caption then return "" end
+  local ok, text = pcall(pandoc.utils.stringify, caption)
+  if ok then
+    return trim(text)
+  end
+  if caption.long then
+    return trim(pandoc.utils.stringify(caption.long))
+  end
+  return ""
+end
+
+local function sequence_id(prefix)
+  local value = trim(prefix)
+  if value == "" then value = "Figure" end
+  return value:gsub("%s+", "_")
+end
+
+local function caption_block(caption_text)
+  figure_count = figure_count + 1
+  local prefix = trim(configured_prefix)
+  if prefix == "" then prefix = "Figure" end
+  local instr = "SEQ " .. sequence_id(prefix) .. " \\* ARABIC"
+  local suffix = ""
+  if caption_text ~= "" then
+    suffix = " " .. caption_text
+  end
+
+  local xml = table.concat({
+    '<w:p>',
+    '<w:pPr><w:pStyle w:val="Caption"/></w:pPr>',
+    '<w:r><w:t xml:space="preserve">', xml_escape(prefix .. " "), '</w:t></w:r>',
+    '<w:fldSimple w:instr="', attr_escape(instr), '">',
+    '<w:r><w:t>', tostring(figure_count), '</w:t></w:r>',
+    '</w:fldSimple>',
+    '<w:r><w:t xml:space="preserve">', xml_escape(suffix), '</w:t></w:r>',
+    '</w:p>',
+  })
+  return pandoc.RawBlock("openxml", xml)
+end
+
+local function captioned_blocks(image_blocks, caption_text)
+  local position = trim(configured_caption_position):lower()
+  local blocks = pandoc.List()
+
+  if position == "above" then
+    blocks:insert(caption_block(caption_text))
+  end
+  for _, block in ipairs(image_blocks) do
+    blocks:insert(block)
+  end
+  if position ~= "above" then
+    blocks:insert(caption_block(caption_text))
+  end
+  return blocks
+end
+
+function Figure(el)
+  if not FORMAT:match("docx") then return nil end
+  local caption_text = caption_to_text(el.caption)
+  if caption_text == "" then return nil end
+  return captioned_blocks(el.content, caption_text)
+end
+
+function Para(el)
+  if not FORMAT:match("docx") then return nil end
+  if #el.content ~= 1 then return nil end
+
+  local image = el.content[1]
+  if image.t ~= "Image" then return nil end
+
+  local caption_text = caption_to_text(image.caption)
+  if caption_text == "" then return nil end
+  return captioned_blocks(pandoc.List({ pandoc.Para({ image }) }), caption_text)
+end
+"""
+
+
+def _ensure_figure_caption_lua(project_root: Path, settings: ConvertSettings | None = None) -> Path:
+    meta_dir = project_root / PROJECT_DIR_NAME
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    lua_path = meta_dir / "figure-caption.lua"
+    lua_path.write_text(_figure_caption_lua_content(settings or ConvertSettings()), encoding="utf-8")
+    return lua_path
+
+
+def _figure_caption_lua_content(settings: ConvertSettings) -> str:
+    return (
+        FIGURE_CAPTION_LUA_TEMPLATE.replace(
+            "__MD2DOC_FIGURE_PREFIX__",
+            _lua_string_literal(settings.figure_prefix.strip() or "Figure"),
+        )
+        .replace(
+            "__MD2DOC_FIGURE_CAPTION_POSITION__",
+            _lua_string_literal(settings.figure_caption_position.strip().lower() or "below"),
+        )
+    )
+
+
+def _lua_string_literal(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
 HR_TO_PAGEBREAK_LUA_CONTENT = r"""-- hr-to-pagebreak.lua
 function HorizontalRule(el)
   if FORMAT:match('latex') then
@@ -1215,8 +1351,11 @@ def _pandoc_command(project_root: Path, item: PlanItem, settings: ConvertSetting
         "--filter",
         mermaid_filter_cmd[0],
         *mermaid_filter_cmd[1:],
-        f"--lua-filter={lua_filter_path}",
     ]
+    if settings.output_format == "docx" and settings.figure_numbering:
+        figure_lua_path = _ensure_figure_caption_lua(project_root, settings)
+        cmd.append(f"--lua-filter={figure_lua_path}")
+    cmd.append(f"--lua-filter={lua_filter_path}")
     if settings.hr_to_pagebreak:
         hr_lua_path = _ensure_hr_to_pagebreak_lua(project_root)
         cmd.append(f"--lua-filter={hr_lua_path}")
@@ -1273,6 +1412,8 @@ def _validate_settings(project_root: Path, settings: ConvertSettings) -> None:
         raise RuntimeError("Table borders must be one of: template, bordered, plain")
     if settings.mermaid_format not in {"png", "svg", "pdf"}:
         raise RuntimeError("Mermaid format must be one of: png, svg, pdf")
+    if settings.figure_caption_position.strip().lower() not in {"above", "below"}:
+        raise RuntimeError("Figure caption position must be one of: above, below")
 
 
 def _effective_reference_docx(project_root: Path, settings: ConvertSettings) -> Path | None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ from md2doc.converter import (
     ConvertSettings,
     DependencyCheck,
     _center_docx_images,
+    _ensure_figure_caption_lua,
     _ensure_generated_reference_docx,
     _markitdown_command,
     _mermaid_environment,
@@ -282,6 +284,9 @@ class ConverterTests(unittest.TestCase):
                 mermaid_background="transparent",
                 mermaid_scale=2.5,
                 mermaid_min_dpi=360.0,
+                figure_numbering=True,
+                figure_prefix="图",
+                figure_caption_position="above",
             )
 
             loaded = ProjectConfig.from_dict(project.to_dict())
@@ -295,6 +300,9 @@ class ConverterTests(unittest.TestCase):
             self.assertEqual(settings.mermaid_format, "svg")
             self.assertEqual(settings.mermaid_scale, 2.5)
             self.assertEqual(settings.mermaid_min_dpi, 360.0)
+            self.assertTrue(settings.figure_numbering)
+            self.assertEqual(settings.figure_prefix, "图")
+            self.assertEqual(settings.figure_caption_position, "above")
 
     def test_settings_signature_resolves_reference_docx_relative_to_project_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -323,6 +331,7 @@ class ConverterTests(unittest.TestCase):
                 author="Team",
                 number_sections=True,
                 reference_docx=str(reference),
+                figure_numbering=True,
             )
             item = plan_conversions(root, [source], settings)[0]
 
@@ -336,6 +345,7 @@ class ConverterTests(unittest.TestCase):
             self.assertIn("--reference-doc", cmd)
             self.assertIn(str(reference), cmd)
             self.assertTrue(any(arg.startswith("--lua-filter=") for arg in cmd))
+            self.assertTrue(any("figure-caption.lua" in arg for arg in cmd))
 
     def test_mermaid_environment_uses_rendering_options(self) -> None:
         env = _mermaid_environment(
@@ -395,6 +405,43 @@ class ConverterTests(unittest.TestCase):
             paragraphs = root.findall(".//w:p", namespace)
             self.assertIsNone(paragraphs[0].find("w:pPr/w:jc", namespace))
             self.assertEqual(paragraphs[1].find("w:pPr/w:jc", namespace).get(f"{{{namespace['w']}}}val"), "center")
+
+    @unittest.skipUnless(shutil.which("pandoc"), "Pandoc is required for DOCX caption integration test")
+    def test_figure_caption_lua_emits_word_seq_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            png_path = root / "arch.png"
+            png_path.write_bytes(
+                base64.b64decode(
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+                )
+            )
+            md_path = root / "input.md"
+            md_path.write_text("![System architecture](arch.png){#fig:arch}", encoding="utf-8")
+            output_path = root / "output.docx"
+            lua_path = _ensure_figure_caption_lua(root, ConvertSettings(figure_prefix="图"))
+
+            completed = subprocess.run(
+                [
+                    "pandoc",
+                    str(md_path),
+                    "-o",
+                    str(output_path),
+                    f"--lua-filter={lua_path}",
+                    f"--resource-path={root}",
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(root),
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            with zipfile.ZipFile(output_path) as docx:
+                document = docx.read("word/document.xml").decode("utf-8")
+            self.assertIn("w:fldSimple", document)
+            self.assertIn("SEQ 图", document)
+            self.assertIn("System architecture", document)
+            self.assertIn('w:pStyle w:val="Caption"', document)
 
     def test_generated_reference_docx_patches_font_and_table_borders(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -541,8 +588,8 @@ class ConverterTests(unittest.TestCase):
                 [source],
                 ConvertSettings(
                     output_dir=output_dir,
-                    pandoc_cmd=f"python {fake_pandoc}",
-                    mermaid_filter_cmd="python",
+                    pandoc_cmd=f'"{sys.executable}" "{fake_pandoc}"',
+                    mermaid_filter_cmd=f'"{sys.executable}"',
                 ),
                 on_start=lambda item: events.append(f"start:{item.relative_source}"),
                 on_event=lambda result: events.append(f"{result.status}:{result.item.relative_source}"),
@@ -582,8 +629,8 @@ class ConverterTests(unittest.TestCase):
                 [source],
                 ConvertSettings(
                     output_dir=output_dir,
-                    pandoc_cmd=f"python {fake_pandoc}",
-                    mermaid_filter_cmd="python",
+                    pandoc_cmd=f'"{sys.executable}" "{fake_pandoc}"',
+                    mermaid_filter_cmd=f'"{sys.executable}"',
                 ),
             )
 
@@ -622,8 +669,8 @@ class ConverterTests(unittest.TestCase):
                 [source],
                 ConvertSettings(
                     output_dir=output_dir,
-                    pandoc_cmd=f"python {fake_pandoc}",
-                    mermaid_filter_cmd="python",
+                    pandoc_cmd=f'"{sys.executable}" "{fake_pandoc}"',
+                    mermaid_filter_cmd=f'"{sys.executable}"',
                 ),
             )
 
@@ -659,8 +706,8 @@ class ConverterTests(unittest.TestCase):
                 [source],
                 ConvertSettings(
                     output_dir=output_dir,
-                    pandoc_cmd=f"python {fake_pandoc}",
-                    mermaid_filter_cmd="python",
+                    pandoc_cmd=f'"{sys.executable}" "{fake_pandoc}"',
+                    mermaid_filter_cmd=f'"{sys.executable}"',
                 ),
             )
 
@@ -711,8 +758,8 @@ class ConverterTests(unittest.TestCase):
                     [source],
                     ConvertSettings(
                         output_dir=output_dir,
-                        pandoc_cmd=f"python {fake_pandoc}",
-                        mermaid_filter_cmd="python",
+                        pandoc_cmd=f'"{sys.executable}" "{fake_pandoc}"',
+                        mermaid_filter_cmd=f'"{sys.executable}"',
                     ),
                     cancel_event=cancel_event,
                 )
@@ -746,8 +793,8 @@ class ConverterTests(unittest.TestCase):
 
             settings = ConvertSettings(
                 output_dir=output_dir,
-                pandoc_cmd=f"python {fake_pandoc}",
-                mermaid_filter_cmd="python",
+                pandoc_cmd=f'"{sys.executable}" "{fake_pandoc}"',
+                mermaid_filter_cmd=f'"{sys.executable}"',
             )
 
             results = run_conversions(root, [source], settings)
@@ -948,7 +995,7 @@ class Qmd2PptConverterTests(unittest.TestCase):
                 ConvertSettings(
                     kind=KIND_QMD2PPT,
                     output_dir=root,
-                    quarto_cmd=f"python {fake_quarto}",
+                    quarto_cmd=f'"{sys.executable}" "{fake_quarto}"',
                 ),
             )
 

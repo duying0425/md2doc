@@ -138,14 +138,31 @@ md2doc convert C:\docs\README.md --format docx
 - `--title-page`、`--title`、`--subtitle`、`--author`、`--date`：文档元数据选项。
 - `--reference-docx <file>`、`--default-font <name>`、`--font-size <n>`（仅限命令行）、`--table-borders template|bordered|plain`、`--hr-to-pagebreak` / `--no-hr-to-pagebreak`：DOCX 样式与布局选项。
 - `--mermaid-format png|svg|pdf`、`--mermaid-theme <name>`、`--mermaid-background <value>`、`--mermaid-scale <n>`、`--mermaid-min-dpi <n>`：Mermaid 渲染和尺寸选项。
+- `--figure-numbering` / `--no-figure-numbering`、`--figure-prefix <label>`、`--figure-caption-position below|above`：使用 Word 原生 `SEQ` 域为图片题注编号。
 - `--pandoc <command>`、`--mermaid-filter <command>`：覆盖工具的执行命令或路径。
 - `--pandoc-arg=<arg>`：追加原始 Pandoc 参数。如需多个参数请重复使用该选项。
+
+启用图片编号后，普通图片可以直接使用 Markdown 图片说明作为 Word 题注：
+
+```markdown
+![系统架构](assets/arch.png){#fig:arch}
+```
+
+Mermaid 图的 Word 题注请写在 fenced-code 属性里：
+
+````markdown
+```{.mermaid #fig:login caption="登录流程"}
+flowchart TD
+  A[打开登录页] --> B[登录]
+```
+````
 
 示例：
 
 ```powershell
 md2doc convert C:\docs --toc --toc-depth 2 --number-sections --title "Team Handbook"
 md2doc convert C:\docs --reference-docx C:\templates\reference.docx
+md2doc convert C:\docs --figure-numbering --figure-prefix "图"
 md2doc convert C:\docs --pandoc "C:\Tools\Pandoc\pandoc.exe" --pandoc-arg=--embed-resources
 ```
 

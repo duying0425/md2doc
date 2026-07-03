@@ -182,6 +182,9 @@ def _add_conversion_arguments(parser: argparse.ArgumentParser, *, dry_run: bool)
     parser.add_argument("--mermaid-background", default=None)
     parser.add_argument("--mermaid-scale", type=float, default=None)
     parser.add_argument("--mermaid-min-dpi", type=float, default=None)
+    parser.add_argument("--figure-numbering", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--figure-prefix", default=None)
+    parser.add_argument("--figure-caption-position", choices=("above", "below"), default=None)
     parser.add_argument(
         "--hr-to-pagebreak",
         action=argparse.BooleanOptionalAction,
@@ -315,6 +318,9 @@ def _settings_from_args(config: ProjectConfig, args: argparse.Namespace) -> Conv
         "mermaid_background",
         "mermaid_scale",
         "mermaid_min_dpi",
+        "figure_numbering",
+        "figure_prefix",
+        "figure_caption_position",
         "pandoc_cmd",
         "mermaid_filter_cmd",
         "hr_to_pagebreak",

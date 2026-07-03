@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 from md2doc.project import (
+    CURRENT_PROJECT_CONFIG_VERSION,
     KIND_DOC2MD,
     KIND_HTML2PDF,
     KIND_MD2DOC,
@@ -26,6 +27,25 @@ class ProjectKindTests(unittest.TestCase):
 
         config_default = ProjectConfig.from_dict({"name": "Docs", "root": "/tmp/docs"})
         self.assertFalse(config_default.hr_to_pagebreak)
+
+    def test_figure_numbering_serialization(self) -> None:
+        config = ProjectConfig.from_dict(
+            {
+                "name": "Docs",
+                "root": "/tmp/docs",
+                "config_version": CURRENT_PROJECT_CONFIG_VERSION,
+                "figure_numbering": True,
+                "figure_prefix": "图",
+                "figure_caption_position": "above",
+            }
+        )
+
+        self.assertTrue(config.figure_numbering)
+        self.assertEqual(config.figure_prefix, "图")
+        self.assertEqual(config.figure_caption_position, "above")
+        self.assertEqual(config.config_version, CURRENT_PROJECT_CONFIG_VERSION)
+        self.assertTrue(config.to_dict()["figure_numbering"])
+        self.assertEqual(config.to_dict()["config_version"], CURRENT_PROJECT_CONFIG_VERSION)
 
     def test_legacy_config_without_kind_defaults_to_md2doc(self) -> None:
         config = ProjectConfig.from_dict({"name": "Docs", "root": "/tmp/docs", "output_format": "docx"})
@@ -91,6 +111,24 @@ class ProjectKindTests(unittest.TestCase):
 
             cleaned = json.loads(config_path.read_text(encoding="utf-8"))
             self.assertEqual(cleaned["kind"], KIND_MD2DOC)
+            self.assertEqual(cleaned["config_version"], CURRENT_PROJECT_CONFIG_VERSION)
+
+    def test_load_project_marks_legacy_config_migration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            meta_dir = root / PROJECT_DIR_NAME
+            meta_dir.mkdir(parents=True)
+            config_path = meta_dir / PROJECT_CONFIG_NAME
+            config_path.write_text(
+                json.dumps({"name": "Legacy", "root": str(root), "output_format": "docx"}),
+                encoding="utf-8",
+            )
+
+            config = load_project(root)
+
+            self.assertTrue(config.config_was_migrated)
+            self.assertEqual(config.loaded_config_version, 1)
+            self.assertEqual(config.config_version, CURRENT_PROJECT_CONFIG_VERSION)
 
 
 class ProjectRegistryTests(unittest.TestCase):

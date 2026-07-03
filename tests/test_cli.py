@@ -55,6 +55,11 @@ class CliTests(unittest.TestCase):
                         "custom-filter",
                         "--mermaid-min-dpi",
                         "360",
+                        "--figure-numbering",
+                        "--figure-prefix",
+                        "图",
+                        "--figure-caption-position",
+                        "above",
                         "--pandoc-arg=--standalone",
                         "--hr-to-pagebreak",
                     ]
@@ -72,6 +77,9 @@ class CliTests(unittest.TestCase):
             self.assertEqual(settings.pandoc_cmd, "custom-pandoc")
             self.assertEqual(settings.mermaid_filter_cmd, "custom-filter")
             self.assertEqual(settings.mermaid_min_dpi, 360.0)
+            self.assertTrue(settings.figure_numbering)
+            self.assertEqual(settings.figure_prefix, "图")
+            self.assertEqual(settings.figure_caption_position, "above")
             self.assertIn("--standalone", settings.extra_pandoc_args)
             self.assertTrue(settings.hr_to_pagebreak)
 

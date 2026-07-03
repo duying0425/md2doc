@@ -38,6 +38,7 @@ from .converter import (
 )
 from .dependencies import ensure_startup_dependencies
 from .project import (
+    CURRENT_PROJECT_CONFIG_VERSION,
     KIND_DOC2MD,
     KIND_HTML2PDF,
     KIND_MD2DOC,
@@ -86,6 +87,7 @@ class Md2DocApp(tk.Tk):
 
         self.registry = ProjectRegistry()
         self.current_project: ProjectConfig | None = None
+        self.config_upgrade_notices: set[str] = set()
         self.project_states: dict[str, ProjectState] = {}
         self.plan_by_id: dict[str, PlanItem] = {}
         self.iid_by_source: dict[str, str] = {}
@@ -514,6 +516,7 @@ class Md2DocApp(tk.Tk):
             self._save_project_state(self.current_project.root)
 
         self.current_project = load_project(project.root)
+        self._notify_project_config_upgrade(self.current_project)
         if self.current_project.output_dir == "output":
             self.current_project.output_dir = "."
             self.current_project.save()
@@ -526,6 +529,22 @@ class Md2DocApp(tk.Tk):
         self.format_var.set(self.current_project.output_format)
         self.output_var.set(self.current_project.output_dir)
         self._load_project_state(self.current_project.root)
+
+    def _notify_project_config_upgrade(self, project: ProjectConfig) -> None:
+        if not project.config_was_migrated:
+            return
+        key = str(project.root.resolve())
+        if key in self.config_upgrade_notices:
+            return
+        self.config_upgrade_notices.add(key)
+        old_version = project.loaded_config_version
+        new_version = project.config_version or CURRENT_PROJECT_CONFIG_VERSION
+        message = (
+            f"Project configuration was upgraded from v{old_version} to v{new_version}.\n\n"
+            "New Word figure caption numbering options are available in Settings > Word."
+        )
+        self._append_log(message.replace("\n\n", " "))
+        messagebox.showinfo("Project Settings", message, parent=self)
 
     def _apply_kind_to_ui(self, kind: str) -> None:
         if kind == KIND_DOC2MD:
@@ -1277,6 +1296,9 @@ class SettingsDialog(tk.Toplevel):
         self.reference_docx_var = tk.StringVar(value=project.reference_docx)
         self.default_font_var = tk.StringVar(value=project.default_font)
         self.table_borders_var = tk.StringVar(value=project.table_borders)
+        self.figure_numbering_var = tk.BooleanVar(value=project.figure_numbering)
+        self.figure_prefix_var = tk.StringVar(value=project.figure_prefix)
+        self.figure_caption_position_var = tk.StringVar(value=project.figure_caption_position)
         self.mermaid_format_var = tk.StringVar(value=project.mermaid_format)
         self.mermaid_theme_var = tk.StringVar(value=project.mermaid_theme)
         self.mermaid_background_var = tk.StringVar(value=project.mermaid_background)
@@ -1402,6 +1424,26 @@ class SettingsDialog(tk.Toplevel):
             text="Convert horizontal rules to page breaks",
             variable=self.hr_to_pagebreak_var,
         ).grid(row=3, column=0, columnspan=4, sticky="w", pady=self.parent._pad(12, 0))
+        ttk.Checkbutton(
+            frame,
+            text="Number figure captions with Word fields",
+            variable=self.figure_numbering_var,
+        ).grid(row=4, column=0, columnspan=4, sticky="w", pady=self.parent._pad(16, 0))
+        ttk.Label(frame, text="Figure label").grid(row=5, column=0, sticky="w", pady=self.parent._pad(8, 0))
+        ttk.Entry(frame, textvariable=self.figure_prefix_var, width=16).grid(
+            row=5,
+            column=1,
+            sticky="w",
+            pady=self.parent._pad(8, 0),
+        )
+        ttk.Label(frame, text="Caption position").grid(row=6, column=0, sticky="w", pady=self.parent._pad(8, 0))
+        ttk.Combobox(
+            frame,
+            textvariable=self.figure_caption_position_var,
+            values=("below", "above"),
+            state="readonly",
+            width=12,
+        ).grid(row=6, column=1, sticky="w", pady=self.parent._pad(8, 0))
 
     def _build_mermaid_tab(self, frame: ttk.Frame) -> None:
         frame.columnconfigure(1, weight=1)
@@ -1460,6 +1502,9 @@ class SettingsDialog(tk.Toplevel):
         self.default_font_var.set(defaults.default_font)
         self.table_borders_var.set(defaults.table_borders)
         self.hr_to_pagebreak_var.set(defaults.hr_to_pagebreak)
+        self.figure_numbering_var.set(defaults.figure_numbering)
+        self.figure_prefix_var.set(defaults.figure_prefix)
+        self.figure_caption_position_var.set(defaults.figure_caption_position)
         self.mermaid_format_var.set(defaults.mermaid_format)
         self.mermaid_theme_var.set(defaults.mermaid_theme)
         self.mermaid_background_var.set(defaults.mermaid_background)
@@ -1505,6 +1550,9 @@ class SettingsDialog(tk.Toplevel):
         self.project.reference_docx = self.reference_docx_var.get().strip()
         self.project.default_font = self.default_font_var.get().strip()
         self.project.table_borders = self.table_borders_var.get()
+        self.project.figure_numbering = self.figure_numbering_var.get()
+        self.project.figure_prefix = self.figure_prefix_var.get().strip() or "图"
+        self.project.figure_caption_position = self.figure_caption_position_var.get()
         self.project.mermaid_format = self.mermaid_format_var.get()
         self.project.mermaid_theme = self.mermaid_theme_var.get().strip() or "default"
         self.project.mermaid_background = self.mermaid_background_var.get().strip() or "white"

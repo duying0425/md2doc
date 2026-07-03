@@ -9,6 +9,7 @@ from typing import Any
 
 PROJECT_DIR_NAME = ".md2doc"
 PROJECT_CONFIG_NAME = "project.json"
+CURRENT_PROJECT_CONFIG_VERSION = 2
 
 KIND_MD2DOC = "md2doc"
 KIND_DOC2MD = "doc2md"
@@ -69,7 +70,13 @@ class ProjectConfig:
     mermaid_background: str = "white"
     mermaid_scale: float = 3.0
     mermaid_min_dpi: float = 450.0
+    figure_numbering: bool = False
+    figure_prefix: str = "图"
+    figure_caption_position: str = "below"
     hr_to_pagebreak: bool = False
+    config_version: int = CURRENT_PROJECT_CONFIG_VERSION
+    loaded_config_version: int = field(default=CURRENT_PROJECT_CONFIG_VERSION, repr=False, compare=False)
+    config_was_migrated: bool = field(default=False, repr=False, compare=False)
 
     @property
     def meta_dir(self) -> Path:
@@ -88,6 +95,7 @@ class ProjectConfig:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "config_version": self.config_version,
             "name": self.name,
             "root": str(self.root),
             "kind": self.kind,
@@ -112,12 +120,17 @@ class ProjectConfig:
             "mermaid_background": self.mermaid_background,
             "mermaid_scale": self.mermaid_scale,
             "mermaid_min_dpi": self.mermaid_min_dpi,
+            "figure_numbering": self.figure_numbering,
+            "figure_prefix": self.figure_prefix,
+            "figure_caption_position": self.figure_caption_position,
             "hr_to_pagebreak": self.hr_to_pagebreak,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ProjectConfig":
         root = Path(data["root"]).expanduser().resolve()
+        stored_config_version = _parse_config_version(data.get("config_version"))
+        config_version = max(stored_config_version, CURRENT_PROJECT_CONFIG_VERSION)
         kind = normalize_kind(data.get("kind"))
         if kind == KIND_DOC2MD:
             # doc2md projects always emit Markdown; ignore any stale Word/HTML/PDF format.
@@ -146,6 +159,7 @@ class ProjectConfig:
         return cls(
             name=str(data.get("name") or root.name),
             root=root,
+            config_version=config_version,
             kind=kind,
             output_dir=str(data.get("output_dir") or "."),
             output_format=output_format,
@@ -168,7 +182,12 @@ class ProjectConfig:
             mermaid_background=str(data.get("mermaid_background") or "white"),
             mermaid_scale=mermaid_scale,
             mermaid_min_dpi=mermaid_min_dpi,
+            figure_numbering=bool(data.get("figure_numbering", False)),
+            figure_prefix=str(data.get("figure_prefix") or "图"),
+            figure_caption_position=str(data.get("figure_caption_position") or "below"),
             hr_to_pagebreak=bool(data.get("hr_to_pagebreak", False)),
+            loaded_config_version=stored_config_version,
+            config_was_migrated=stored_config_version < CURRENT_PROJECT_CONFIG_VERSION,
         )
 
     def save(self) -> None:
@@ -177,6 +196,14 @@ class ProjectConfig:
             json.dumps(self.to_dict(), indent=2, ensure_ascii=True),
             encoding="utf-8",
         )
+
+
+def _parse_config_version(value: object) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 1
+    return parsed if parsed > 0 else 1
 
 
 def create_project(
@@ -206,8 +233,8 @@ def load_project(root: Path | str) -> ProjectConfig:
     data = json.loads(config_file.read_text(encoding="utf-8"))
     config = ProjectConfig.from_dict(data)
     # Clean up legacy configs on disk: persist a normalized copy when the stored
-    # data predates the project kind, carries a stale format for its kind,
-    # or has Mermaid sizing defaults that need migration.
+    # data predates the current schema, predates the project kind, carries a
+    # stale format for its kind, or has Mermaid sizing defaults that need migration.
     stored_scale = data.get("mermaid_scale")
     try:
         scale_needs_migration = stored_scale is None or float(stored_scale) == 0.0
@@ -220,7 +247,8 @@ def load_project(root: Path | str) -> ProjectConfig:
         min_dpi_needs_migration = True
 
     if (
-        data.get("kind") != config.kind
+        config.config_was_migrated
+        or data.get("kind") != config.kind
         or data.get("output_format") != config.output_format
         or scale_needs_migration
         or min_dpi_needs_migration

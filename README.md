@@ -141,14 +141,31 @@ Common `plan` and `convert` options:
 - `--title-page`, `--title`, `--subtitle`, `--author`, `--date`: metadata options.
 - `--reference-docx <file>`, `--default-font <name>`, `--font-size <n>` (CLI only), `--table-borders template|bordered|plain`, `--hr-to-pagebreak` / `--no-hr-to-pagebreak`: DOCX styling and layout options.
 - `--mermaid-format png|svg|pdf`, `--mermaid-theme <name>`, `--mermaid-background <value>`, `--mermaid-scale <n>`, `--mermaid-min-dpi <n>`: Mermaid rendering and sizing options.
+- `--figure-numbering` / `--no-figure-numbering`, `--figure-prefix <label>`, `--figure-caption-position below|above`: number image captions with Word `SEQ` fields.
 - `--pandoc <command>`, `--mermaid-filter <command>`: override tool commands or paths.
 - `--pandoc-arg=<arg>`: append a raw Pandoc argument. Repeat for multiple arguments.
+
+Image captions can be numbered with Word-native fields when figure numbering is enabled:
+
+```markdown
+![System architecture](assets/arch.png){#fig:arch}
+```
+
+For Mermaid diagrams, put the Word caption in the fenced-code attributes:
+
+````markdown
+```{.mermaid #fig:login caption="Login flow"}
+flowchart TD
+  A[Open] --> B[Login]
+```
+````
 
 Examples:
 
 ```powershell
 md2doc convert C:\docs --toc --toc-depth 2 --number-sections --title "Team Handbook"
 md2doc convert C:\docs --reference-docx C:\templates\reference.docx
+md2doc convert C:\docs --figure-numbering --figure-prefix "Figure"
 md2doc convert C:\docs --pandoc "C:\Tools\Pandoc\pandoc.exe" --pandoc-arg=--embed-resources
 ```
 
