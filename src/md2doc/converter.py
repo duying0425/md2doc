@@ -82,7 +82,7 @@ class ConvertSettings:
     markitdown_cmd: str = "markitdown"
     quarto_cmd: str = "quarto"
     extra_pandoc_args: tuple[str, ...] = ()
-    hr_to_pagebreak: bool = False
+    hr_to_pagebreak: bool = True
     force: bool = False
     skip_unchanged: bool = True
     toc: bool = False
@@ -102,7 +102,7 @@ class ConvertSettings:
     mermaid_background: str = "white"
     mermaid_scale: float = 3.0
     mermaid_min_dpi: float = 450.0
-    figure_numbering: bool = False
+    figure_numbering: bool = True
     figure_prefix: str = "图"
     figure_caption_position: str = "below"
 

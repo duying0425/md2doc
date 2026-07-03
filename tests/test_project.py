@@ -26,7 +26,8 @@ class ProjectKindTests(unittest.TestCase):
         self.assertTrue(config.to_dict()["hr_to_pagebreak"])
 
         config_default = ProjectConfig.from_dict({"name": "Docs", "root": "/tmp/docs"})
-        self.assertFalse(config_default.hr_to_pagebreak)
+        self.assertTrue(config_default.hr_to_pagebreak)
+        self.assertTrue(config_default.figure_numbering)
 
     def test_figure_numbering_serialization(self) -> None:
         config = ProjectConfig.from_dict(
