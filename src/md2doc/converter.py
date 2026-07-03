@@ -1472,7 +1472,13 @@ def _mermaid_environment(settings: ConvertSettings) -> dict[str, str]:
         env["MERMAID_FILTER_SCALE"] = str(settings.mermaid_scale)
     if settings.mermaid_min_dpi > 0:
         env["MERMAID_FILTER_MIN_DPI"] = str(settings.mermaid_min_dpi)
+
+    if "PUPPETEER_EXECUTABLE_PATH" not in os.environ:
+        browser_path = _known_html_pdf_browser_path()
+        if browser_path:
+            env["PUPPETEER_EXECUTABLE_PATH"] = str(browser_path)
     return env
+
 
 
 def _validate_settings(project_root: Path, settings: ConvertSettings) -> None:

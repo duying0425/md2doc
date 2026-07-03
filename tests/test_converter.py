@@ -411,6 +411,22 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(env["MERMAID_FILTER_SCALE"], "2.5")
         self.assertEqual(env["MERMAID_FILTER_MIN_DPI"], "360.0")
 
+    def test_mermaid_environment_sets_puppeteer_executable_path(self) -> None:
+        with patch("md2doc.converter._known_html_pdf_browser_path") as mock_browser:
+            mock_browser.return_value = Path("/mocked/path/to/chrome")
+            with patch.dict(os.environ, {}, clear=True):
+                env = _mermaid_environment(ConvertSettings())
+                self.assertEqual(env.get("PUPPETEER_EXECUTABLE_PATH"), str(Path("/mocked/path/to/chrome")))
+
+            with patch.dict(os.environ, {"PUPPETEER_EXECUTABLE_PATH": "/env/path/to/chrome"}, clear=True):
+                env = _mermaid_environment(ConvertSettings())
+                self.assertNotIn("PUPPETEER_EXECUTABLE_PATH", env)
+
+            mock_browser.return_value = None
+            with patch.dict(os.environ, {}, clear=True):
+                env = _mermaid_environment(ConvertSettings())
+                self.assertNotIn("PUPPETEER_EXECUTABLE_PATH", env)
+
     def test_docx_image_paragraphs_are_centered(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             docx_path = Path(tmp) / "image.docx"
