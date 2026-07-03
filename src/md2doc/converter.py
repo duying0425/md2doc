@@ -50,6 +50,13 @@ GENERATED_REFERENCE_META = "generated-reference.json"
 MERMAID_FILTER_ERR_NAME = "mermaid-filter.err"
 MERMAID_IMAGE_DIR_NAME = "mermaid-images"
 MERMAID_IMAGE_LOCATION_SIGNATURE = "metadata-mermaid-images-v1"
+# Pandoc (a Haskell binary) is not long-path aware, so it cannot open Lua
+# filters, reference docs, or resource files whose Windows path exceeds
+# MAX_PATH (260) even when the OS has long paths enabled. We hand it 8.3 short
+# aliases for any path at or beyond this threshold; the margin keeps us clear of
+# the limit once Pandoc appends its own suffixes.
+WINDOWS_MAX_PATH = 260
+LONG_PATH_THRESHOLD = 200
 WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 W = f"{{{WORD_NS}}}"
 ET.register_namespace("w", WORD_NS)
@@ -1337,28 +1344,75 @@ def _ensure_hr_to_pagebreak_lua(project_root: Path) -> Path:
     return lua_path
 
 
+def _shorten_windows_path(path: Path | str) -> str:
+    """Return a short (8.3) alias for *path* when the normal path is long enough
+    to risk tripping tools that are not long-path aware (notably Pandoc, whose
+    Lua-filter and reference-doc loading fails with ENOENT past MAX_PATH). The
+    path must already exist on disk. On non-Windows systems, or when shortening
+    is unavailable or does not help, the original path string is returned."""
+    text = str(path)
+    if os.name != "nt" or len(text) < LONG_PATH_THRESHOLD:
+        return text
+    short = _windows_short_path(text)
+    return short if short and len(short) < len(text) else text
+
+
+def _shorten_output_path(path: Path) -> str:
+    """Short alias for a not-yet-created output file: shorten the (existing)
+    parent directory and re-attach the file name so Pandoc can write to it."""
+    if os.name != "nt" or len(str(path)) < LONG_PATH_THRESHOLD:
+        return str(path)
+    parent_short = _shorten_windows_path(path.parent)
+    return str(Path(parent_short) / path.name)
+
+
+def _windows_short_path(text: str) -> str | None:
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except Exception:
+        return None
+    try:
+        get_short = ctypes.windll.kernel32.GetShortPathNameW
+    except (AttributeError, OSError):
+        return None
+    get_short.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+    get_short.restype = wintypes.DWORD
+    needed = get_short(text, None, 0)
+    if needed == 0:
+        return None
+    buffer = ctypes.create_unicode_buffer(needed)
+    if get_short(text, buffer, needed) == 0:
+        return None
+    return buffer.value
+
+
+def _pandoc_resource_paths(item: PlanItem, project_root: Path) -> list[str]:
+    return [_shorten_windows_path(item.source.parent), _shorten_windows_path(project_root)]
+
+
 def _pandoc_command(project_root: Path, item: PlanItem, settings: ConvertSettings) -> list[str]:
-    resource_path = os.pathsep.join([str(item.source.parent), str(project_root)])
+    resource_path = os.pathsep.join(_pandoc_resource_paths(item, project_root))
     pandoc_cmd = _resolve_command(settings.pandoc_cmd)
     mermaid_filter_cmd = _resolve_command(settings.mermaid_filter_cmd)
     lua_filter_path = _ensure_mermaid_fit_lua(project_root)
     cmd = [
         pandoc_cmd[0],
         *pandoc_cmd[1:],
-        str(item.source),
+        _shorten_windows_path(item.source),
         "-o",
-        str(item.output),
+        _shorten_output_path(item.output),
         "--filter",
         mermaid_filter_cmd[0],
         *mermaid_filter_cmd[1:],
     ]
     if settings.output_format == "docx" and settings.figure_numbering:
         figure_lua_path = _ensure_figure_caption_lua(project_root, settings)
-        cmd.append(f"--lua-filter={figure_lua_path}")
-    cmd.append(f"--lua-filter={lua_filter_path}")
+        cmd.append(f"--lua-filter={_shorten_windows_path(figure_lua_path)}")
+    cmd.append(f"--lua-filter={_shorten_windows_path(lua_filter_path)}")
     if settings.hr_to_pagebreak:
         hr_lua_path = _ensure_hr_to_pagebreak_lua(project_root)
-        cmd.append(f"--lua-filter={hr_lua_path}")
+        cmd.append(f"--lua-filter={_shorten_windows_path(hr_lua_path)}")
     cmd.append(f"--resource-path={resource_path}")
     cmd.extend(_pandoc_format_args(project_root, item, settings))
     cmd.extend(settings.extra_pandoc_args)
