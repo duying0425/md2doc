@@ -313,7 +313,17 @@ def load_project(root: Path | str) -> ProjectConfig:
     except (ValueError, TypeError):
         min_dpi_needs_migration = True
 
-    reference_docx_migrated = ("reference_docx" not in data and config.kind == KIND_MD2DOC)
+    template_relative_path = (Path(PROJECT_DIR_NAME) / "reference.docx").as_posix()
+    template_path = config.root / PROJECT_DIR_NAME / "reference.docx"
+    reference_docx_migrated = False
+
+    if config.kind == KIND_MD2DOC:
+        if not config.reference_docx.strip():
+            config.reference_docx = template_relative_path
+            reference_docx_migrated = True
+        
+        if not template_path.exists():
+            _generate_default_reference_docx(config)
 
     if (
         config.config_was_migrated
@@ -324,8 +334,6 @@ def load_project(root: Path | str) -> ProjectConfig:
         or reference_docx_migrated
     ):
         config.save()
-        if reference_docx_migrated:
-            _generate_default_reference_docx(config)
     ProjectRegistry().add(config)
     return config
 

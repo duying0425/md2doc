@@ -212,6 +212,37 @@ class ProjectKindTests(unittest.TestCase):
                 saved_config = json.loads(config_path.read_text(encoding="utf-8"))
                 self.assertEqual(saved_config["reference_docx"], ".md2doc/reference.docx")
 
+    def test_load_legacy_project_migrates_empty_reference_docx(self) -> None:
+        from unittest.mock import patch, MagicMock
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            meta_dir = root / PROJECT_DIR_NAME
+            meta_dir.mkdir(parents=True)
+            config_path = meta_dir / PROJECT_CONFIG_NAME
+            config_path.write_text(
+                json.dumps({
+                    "name": "Legacy",
+                    "root": str(root),
+                    "kind": KIND_MD2DOC,
+                    "output_format": "docx",
+                    "reference_docx": "",
+                    "config_version": CURRENT_PROJECT_CONFIG_VERSION
+                }),
+                encoding="utf-8",
+            )
+
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0, stdout=b"dummy docx")
+                config = load_project(root)
+
+                self.assertEqual(config.reference_docx, ".md2doc/reference.docx")
+                expected_template_path = root / ".md2doc" / "reference.docx"
+                self.assertTrue(expected_template_path.exists())
+                self.assertEqual(expected_template_path.read_bytes(), b"dummy docx")
+                
+                saved_config = json.loads(config_path.read_text(encoding="utf-8"))
+                self.assertEqual(saved_config["reference_docx"], ".md2doc/reference.docx")
+
 
 class ProjectRegistryTests(unittest.TestCase):
     def test_list_returns_sorted_projects_alphabetically(self) -> None:
