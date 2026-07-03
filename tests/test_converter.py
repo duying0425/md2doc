@@ -23,6 +23,8 @@ from md2doc.converter import (
     _markitdown_command,
     _mermaid_environment,
     _pandoc_command,
+    _shorten_output_path,
+    _shorten_windows_path,
     _patch_reference_docx,
     _resolve_command,
     check_dependencies,
@@ -346,6 +348,36 @@ class ConverterTests(unittest.TestCase):
             self.assertIn(str(reference), cmd)
             self.assertTrue(any(arg.startswith("--lua-filter=") for arg in cmd))
             self.assertTrue(any("figure-caption.lua" in arg for arg in cmd))
+
+    def test_shorten_windows_path_leaves_short_paths_untouched(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "short.lua"
+            path.write_text("-- x", encoding="utf-8")
+            self.assertEqual(_shorten_windows_path(path), str(path))
+            self.assertEqual(_shorten_output_path(Path(tmp) / "out.docx"), str(Path(tmp) / "out.docx"))
+
+    @unittest.skipUnless(os.name == "nt", "8.3 short paths are Windows-only")
+    def test_pandoc_command_shortens_filter_paths_past_max_path(self) -> None:
+        # Pandoc is not long-path aware and fails to open Lua filters/reference
+        # docs whose path exceeds MAX_PATH (260). The command must hand Pandoc
+        # short (8.3) aliases so a deeply nested project root still converts.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            while len(str(root / ".md2doc" / "figure-caption.lua")) < 265:
+                root = root / "padding_segment_0123456789abcdef"
+            root.mkdir(parents=True, exist_ok=True)
+            source = root / "doc.md"
+            source.write_text("# A", encoding="utf-8")
+            settings = ConvertSettings(output_dir=root, figure_numbering=True, hr_to_pagebreak=True)
+            item = plan_conversions(root, [source], settings)[0]
+
+            cmd = _pandoc_command(root, item, settings)
+
+            lua_args = [arg[len("--lua-filter="):] for arg in cmd if arg.startswith("--lua-filter=")]
+            self.assertTrue(lua_args)
+            for filter_path in lua_args:
+                self.assertLess(len(filter_path), 260)
+                self.assertTrue(Path(filter_path).exists())
 
     def test_mermaid_environment_uses_rendering_options(self) -> None:
         env = _mermaid_environment(

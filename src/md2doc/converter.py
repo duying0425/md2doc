@@ -624,12 +624,12 @@ def _run_one(
     cmd = _pandoc_command(project_root, item, settings)
     env = os.environ.copy()
     env.update(_mermaid_environment(settings))
-    env["MERMAID_FILTER_LOC"] = str(_ensure_mermaid_image_dir(project_root, item))
-    env["MD2DOC_RESOURCE_PATHS"] = os.pathsep.join([str(item.source.parent), str(project_root)])
+    env["MERMAID_FILTER_LOC"] = _shorten_windows_path(_ensure_mermaid_image_dir(project_root, item))
+    env["MD2DOC_RESOURCE_PATHS"] = os.pathsep.join(_pandoc_resource_paths(item, project_root))
     mermaid_error_path = _reset_mermaid_filter_error_log(item.source.parent)
     completed = _run_subprocess_with_cancel(
         cmd,
-        cwd=item.source.parent,
+        cwd=_shorten_windows_path(item.source.parent),
         capture_output=True,
         text=True,
         check=False,
@@ -1438,7 +1438,7 @@ def _pandoc_format_args(project_root: Path, item: PlanItem, settings: ConvertSet
 
     reference_docx = _effective_reference_docx(project_root, settings)
     if reference_docx:
-        args.extend(["--reference-doc", str(reference_docx)])
+        args.extend(["--reference-doc", _shorten_windows_path(reference_docx)])
     return args
 
 
