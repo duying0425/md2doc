@@ -8,9 +8,9 @@ $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $Python = Join-Path $Root ".venv\Scripts\python.exe"
 
-# 1. Validate that the virtual environment exists
+# 1. Validate that python exists (use virtual environment if present, otherwise fallback to system python)
 if (-not (Test-Path $Python)) {
-    throw "Virtual environment Python not found at: $Python"
+    $Python = "python"
 }
 
 # 2. Validate Git working tree is clean
