@@ -9,7 +9,7 @@ from typing import Any
 
 PROJECT_DIR_NAME = ".md2doc"
 PROJECT_CONFIG_NAME = "project.json"
-CURRENT_PROJECT_CONFIG_VERSION = 3
+CURRENT_PROJECT_CONFIG_VERSION = 4
 
 KIND_MD2DOC = "md2doc"
 KIND_DOC2MD = "doc2md"
@@ -71,7 +71,7 @@ class ProjectConfig:
     mermaid_scale: float = 3.0
     mermaid_min_dpi: float = 450.0
     figure_numbering: bool = True
-    figure_prefix: str = "图"
+    figure_prefix: str = "图表"
     figure_caption_position: str = "below"
     hr_to_pagebreak: bool = True
     config_version: int = CURRENT_PROJECT_CONFIG_VERSION
@@ -156,6 +156,13 @@ class ProjectConfig:
         except (ValueError, TypeError):
             mermaid_min_dpi = 450.0
 
+        # Migrate figure_prefix: up to config_version 3 the default was "图".
+        # From version 4 the default is "图表" (Word built-in Chinese label)
+        # so that cross-references work out of the box.
+        raw_figure_prefix = str(data.get("figure_prefix") or "图表")
+        if raw_figure_prefix == "图" and stored_config_version < 4:
+            raw_figure_prefix = "图表"
+
         return cls(
             name=str(data.get("name") or root.name),
             root=root,
@@ -183,7 +190,7 @@ class ProjectConfig:
             mermaid_scale=mermaid_scale,
             mermaid_min_dpi=mermaid_min_dpi,
             figure_numbering=bool(data.get("figure_numbering", True)),
-            figure_prefix=str(data.get("figure_prefix") or "图"),
+            figure_prefix=raw_figure_prefix,
             figure_caption_position=str(data.get("figure_caption_position") or "below"),
             hr_to_pagebreak=bool(data.get("hr_to_pagebreak", True)),
             loaded_config_version=stored_config_version,

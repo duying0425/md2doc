@@ -103,7 +103,7 @@ class ConvertSettings:
     mermaid_scale: float = 3.0
     mermaid_min_dpi: float = 450.0
     figure_numbering: bool = True
-    figure_prefix: str = "图"
+    figure_prefix: str = "图表"
     figure_caption_position: str = "below"
 
     def output_suffix(self) -> str:
