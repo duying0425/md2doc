@@ -1481,13 +1481,35 @@ def _mermaid_environment(settings: ConvertSettings) -> dict[str, str]:
 
 
 
+def _generate_default_reference_docx_if_needed(project_root: Path, settings: ConvertSettings) -> None:
+    target_path = project_root / PROJECT_DIR_NAME / "reference.docx"
+    if target_path.exists():
+        return
+    try:
+        pandoc_cmd = _resolve_command(settings.pandoc_cmd)
+        completed = subprocess.run(
+            pandoc_cmd + ["--print-default-data-file", "reference.docx"],
+            capture_output=True,
+            check=False,
+            **hidden_subprocess_kwargs(),
+        )
+        if completed.returncode == 0:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_bytes(completed.stdout)
+    except Exception:
+        pass
+
+
 def _validate_settings(project_root: Path, settings: ConvertSettings) -> None:
     if settings.kind in (KIND_DOC2MD, KIND_QMD2PPT, KIND_HTML2PDF):
         return
     if settings.reference_docx:
         reference_docx = _resolve_project_path(project_root, settings.reference_docx)
         if not reference_docx.exists():
-            raise RuntimeError(f"Reference DOCX not found: {reference_docx}")
+            if settings.reference_docx.replace("\\", "/") == f"{PROJECT_DIR_NAME}/reference.docx":
+                _generate_default_reference_docx_if_needed(project_root, settings)
+            if not reference_docx.exists():
+                raise RuntimeError(f"Reference DOCX not found: {reference_docx}")
     if settings.table_borders not in {"template", "bordered", "plain"}:
         raise RuntimeError("Table borders must be one of: template, bordered, plain")
     if settings.mermaid_format not in {"png", "svg", "pdf"}:

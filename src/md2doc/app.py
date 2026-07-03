@@ -43,6 +43,7 @@ from .project import (
     KIND_HTML2PDF,
     KIND_MD2DOC,
     KIND_QMD2PPT,
+    PROJECT_DIR_NAME,
     ProjectConfig,
     ProjectRegistry,
     app_data_dir,
@@ -1527,7 +1528,13 @@ class SettingsDialog(tk.Toplevel):
             self.reference_docx_var.set(path)
 
     def _restore_defaults(self) -> None:
-        defaults = ProjectConfig(name=self.project.name, root=self.project.root)
+        defaults = ProjectConfig(
+            name=self.project.name,
+            root=self.project.root,
+            kind=self.project.kind,
+        )
+        if defaults.kind == KIND_MD2DOC:
+            defaults.reference_docx = (Path(PROJECT_DIR_NAME) / "reference.docx").as_posix()
         if self.project.kind == KIND_HTML2PDF:
             self.html_viewport_width_var.set(str(defaults.html_viewport_width))
             self.html_viewport_height_var.set(str(defaults.html_viewport_height))

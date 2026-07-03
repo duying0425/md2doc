@@ -123,6 +123,31 @@ class ProjectKindTests(unittest.TestCase):
             self.assertEqual(config.kind, KIND_HTML2PDF)
             self.assertEqual(config.output_format, "pdf")
 
+    def test_create_md2doc_project_sets_default_reference_docx(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = create_project(Path(tmp) / "proj", kind=KIND_MD2DOC)
+
+            self.assertEqual(config.kind, KIND_MD2DOC)
+            self.assertEqual(config.reference_docx, ".md2doc/reference.docx")
+            self.assertTrue((config.root / ".md2doc").exists())
+
+    def test_create_md2doc_project_runs_pandoc_to_generate_template(self) -> None:
+        from unittest.mock import patch, MagicMock
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0, stdout=b"dummy docx content")
+                config = create_project(Path(tmp) / "proj", kind=KIND_MD2DOC)
+                
+                self.assertEqual(config.reference_docx, ".md2doc/reference.docx")
+                expected_template_path = config.root / ".md2doc" / "reference.docx"
+                self.assertTrue(expected_template_path.exists())
+                self.assertEqual(expected_template_path.read_bytes(), b"dummy docx content")
+                
+                mock_run.assert_called_once()
+                args_called = mock_run.call_args[0][0]
+                self.assertIn("--print-default-data-file", args_called)
+                self.assertIn("reference.docx", args_called)
+
     def test_load_project_cleans_legacy_config_on_disk(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -156,6 +181,36 @@ class ProjectKindTests(unittest.TestCase):
             self.assertTrue(config.config_was_migrated)
             self.assertEqual(config.loaded_config_version, 1)
             self.assertEqual(config.config_version, CURRENT_PROJECT_CONFIG_VERSION)
+
+    def test_load_legacy_project_migrates_missing_reference_docx(self) -> None:
+        from unittest.mock import patch, MagicMock
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            meta_dir = root / PROJECT_DIR_NAME
+            meta_dir.mkdir(parents=True)
+            config_path = meta_dir / PROJECT_CONFIG_NAME
+            config_path.write_text(
+                json.dumps({
+                    "name": "Legacy",
+                    "root": str(root),
+                    "kind": KIND_MD2DOC,
+                    "output_format": "docx",
+                    "config_version": CURRENT_PROJECT_CONFIG_VERSION
+                }),
+                encoding="utf-8",
+            )
+
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0, stdout=b"dummy docx")
+                config = load_project(root)
+
+                self.assertEqual(config.reference_docx, ".md2doc/reference.docx")
+                expected_template_path = root / ".md2doc" / "reference.docx"
+                self.assertTrue(expected_template_path.exists())
+                self.assertEqual(expected_template_path.read_bytes(), b"dummy docx")
+                
+                saved_config = json.loads(config_path.read_text(encoding="utf-8"))
+                self.assertEqual(saved_config["reference_docx"], ".md2doc/reference.docx")
 
 
 class ProjectRegistryTests(unittest.TestCase):

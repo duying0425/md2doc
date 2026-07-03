@@ -41,7 +41,7 @@ docs/guide.md   -> docs/guide.docx
 - **HTML 转 PDF**：浏览器视口宽高、设备缩放因子、渲染等待延迟以及是否打印背景图形。
 - **高级（Advanced）**：额外的 Pandoc 参数。
 
-对于 DOCX 格式，选中的 `reference.docx` 在 Word 特征样式上具有最高优先级。如果未选择引用文件，md2doc 可以根据配置的字体和表格边框选项自动生成 `.md2doc/generated-reference.docx`。
+对于 DOCX 格式，选中的 `reference.docx` 在 Word 特征样式上具有最高优先级。新建项目（或打开未配置的旧项目）时，系统会自动在 `.md2doc/` 目录下生成一个默认的 Word 模版 `reference.docx` 并在配置中默认引用它，用户可以直接打开该模版进行样式调整。如果用户清除了该模版引用，md2doc 仍然会根据配置的默认字体和表格边框选项自动生成 `.md2doc/generated-reference.docx`。
 
 转换完成后，DOCX 中的图片段落会自动居中对齐。
 

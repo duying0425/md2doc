@@ -202,7 +202,7 @@ class ProjectConfig:
             author=str(data.get("author") or ""),
             date=str(data.get("date") or ""),
             number_sections=bool(data.get("number_sections", False)),
-            reference_docx=str(data.get("reference_docx") or ""),
+            reference_docx=str(data.get("reference_docx") or "") if "reference_docx" in data else ((Path(PROJECT_DIR_NAME) / "reference.docx").as_posix() if kind == KIND_MD2DOC else ""),
             default_font=str(data.get("default_font") or ""),
             default_font_size=int(data.get("default_font_size") or 0),
             table_borders=str(data.get("table_borders") or "template"),
@@ -240,6 +240,29 @@ def _parse_config_version(value: object) -> int:
     return parsed if parsed > 0 else 1
 
 
+def _generate_default_reference_docx(config: ProjectConfig) -> None:
+    try:
+        from .converter import _resolve_command
+        from ._process import hidden_subprocess_kwargs
+        import subprocess
+
+        pandoc_cmd = _resolve_command("pandoc")
+        target_path = config.root / PROJECT_DIR_NAME / "reference.docx"
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        if target_path.exists():
+            return
+        completed = subprocess.run(
+            pandoc_cmd + ["--print-default-data-file", "reference.docx"],
+            capture_output=True,
+            check=False,
+            **hidden_subprocess_kwargs(),
+        )
+        if completed.returncode == 0:
+            target_path.write_bytes(completed.stdout)
+    except Exception:
+        pass
+
+
 def create_project(
     root: Path | str,
     name: str | None = None,
@@ -248,13 +271,23 @@ def create_project(
     resolved = Path(root).expanduser().resolve()
     resolved.mkdir(parents=True, exist_ok=True)
     kind = normalize_kind(kind)
+    
+    reference_docx = ""
+    if kind == KIND_MD2DOC:
+        reference_docx = (Path(PROJECT_DIR_NAME) / "reference.docx").as_posix()
+
     config = ProjectConfig(
         name=name or resolved.name,
         root=resolved,
         kind=kind,
         output_format=default_output_format(kind),
+        reference_docx=reference_docx,
     )
     config.save()
+
+    if kind == KIND_MD2DOC:
+        _generate_default_reference_docx(config)
+
     ProjectRegistry().add(config)
     return config
 
@@ -280,14 +313,19 @@ def load_project(root: Path | str) -> ProjectConfig:
     except (ValueError, TypeError):
         min_dpi_needs_migration = True
 
+    reference_docx_migrated = ("reference_docx" not in data and config.kind == KIND_MD2DOC)
+
     if (
         config.config_was_migrated
         or data.get("kind") != config.kind
         or data.get("output_format") != config.output_format
         or scale_needs_migration
         or min_dpi_needs_migration
+        or reference_docx_migrated
     ):
         config.save()
+        if reference_docx_migrated:
+            _generate_default_reference_docx(config)
     ProjectRegistry().add(config)
     return config
 

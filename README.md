@@ -40,7 +40,7 @@ Open **Settings** in the desktop app to configure:
 - HTML to PDF: viewport width/height, device scale factor, render delay, and print background graphics.
 - Advanced: extra Pandoc arguments.
 
-For DOCX, a selected `reference.docx` has priority for Word-specific styling. If no reference file is selected, md2doc can generate `.md2doc/generated-reference.docx` for the configured font and table border options.
+For DOCX, a selected `reference.docx` has priority for Word-specific styling. When creating a new project (or opening an unconfigured legacy project), the tool automatically generates a default Word template at `.md2doc/reference.docx` and references it in the project configuration by default, allowing you to edit the styles in Word directly. If you clear this template reference, md2doc can still generate `.md2doc/generated-reference.docx` for the configured font and table border options.
 DOCX image paragraphs are centered automatically after conversion.
 
 ## Requirements
