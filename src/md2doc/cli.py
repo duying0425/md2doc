@@ -89,6 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     deps_parser.add_argument("--format", default="docx", choices=OUTPUT_FORMATS)
     deps_parser.add_argument("--pandoc", dest="pandoc_cmd", default="pandoc")
     deps_parser.add_argument("--mermaid-filter", dest="mermaid_filter_cmd", default="mermaid-filter")
+    deps_parser.add_argument("--install", action="store_true", help="Automatically install missing dependencies")
 
     args = parser.parse_args(argv)
 
@@ -111,6 +112,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "scan":
             return _scan(args)
         if args.command == "deps":
+            if args.install:
+                from .dependencies import ensure_startup_dependencies
+                try:
+                    ensure_startup_dependencies(
+                        kind=args.kind,
+                        on_progress=lambda msg: print(f"Installer: {msg}"),
+                    )
+                except Exception as exc:
+                    print(f"error: installation failed: {exc}", file=sys.stderr)
+                    return 1
             checks = check_dependencies(
                 ConvertSettings(
                     kind=args.kind,

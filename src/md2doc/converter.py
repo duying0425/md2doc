@@ -43,6 +43,7 @@ DEFAULT_EXCLUDED_DIRS = {
     "node_modules",
     "dist",
     "build",
+    "bin",
 }
 MANIFEST_NAME = "manifest.json"
 GENERATED_REFERENCE_DOCX = "generated-reference.docx"
@@ -112,6 +113,11 @@ class ConvertSettings:
     figure_numbering: bool = True
     figure_prefix: str = "图表"
     figure_caption_position: str = "below"
+    html_viewport_width: int = 1280
+    html_viewport_height: int = 720
+    html_device_scale_factor: float = 1.0
+    html_print_background: bool = True
+    html_render_delay: float = 0.0
 
     def output_suffix(self) -> str:
         if self.kind == KIND_DOC2MD:
@@ -227,6 +233,11 @@ def settings_from_project(config: ProjectConfig, *, force: bool = False) -> Conv
         figure_numbering=config.figure_numbering,
         figure_prefix=config.figure_prefix,
         figure_caption_position=config.figure_caption_position,
+        html_viewport_width=config.html_viewport_width,
+        html_viewport_height=config.html_viewport_height,
+        html_device_scale_factor=config.html_device_scale_factor,
+        html_print_background=config.html_print_background,
+        html_render_delay=config.html_render_delay,
     )
 
 
@@ -500,6 +511,11 @@ def settings_signature(settings: ConvertSettings, project_root: Path | None = No
         "figure_numbering": settings.figure_numbering,
         "figure_prefix": settings.figure_prefix,
         "figure_caption_position": settings.figure_caption_position,
+        "html_viewport_width": settings.html_viewport_width,
+        "html_viewport_height": settings.html_viewport_height,
+        "html_device_scale_factor": settings.html_device_scale_factor,
+        "html_print_background": settings.html_print_background,
+        "html_render_delay": settings.html_render_delay,
         "mermaid_image_location": MERMAID_IMAGE_LOCATION_SIGNATURE,
     }
     encoded = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
@@ -619,7 +635,7 @@ def _run_one(
     if settings.kind == KIND_QMD2PPT:
         return _run_quarto(item, settings, cancel_event=cancel_event)
     if settings.kind == KIND_HTML2PDF:
-        return _run_html_to_pdf(item, cancel_event=cancel_event)
+        return _run_html_to_pdf(item, settings, cancel_event=cancel_event)
     item.output.parent.mkdir(parents=True, exist_ok=True)
     cmd = _pandoc_command(project_root, item, settings)
     env = os.environ.copy()
@@ -655,6 +671,7 @@ def _run_one(
 
 def _run_html_to_pdf(
     item: PlanItem,
+    settings: ConvertSettings,
     cancel_event: threading.Event | None = None,
 ) -> ConversionResult:
     if cancel_event is not None and cancel_event.is_set():
@@ -664,7 +681,7 @@ def _run_html_to_pdf(
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf", dir=item.output.parent) as tmp:
         temp_path = Path(tmp.name)
     try:
-        _render_html_to_single_page_pdf(item.source, temp_path, cancel_event=cancel_event)
+        _render_html_to_single_page_pdf(item.source, temp_path, settings, cancel_event=cancel_event)
         if cancel_event is not None and cancel_event.is_set():
             raise ConversionCancelledError("Conversion cancelled by user")
         if item.output.exists():
@@ -688,6 +705,7 @@ def _run_html_to_pdf(
 def _render_html_to_single_page_pdf(
     source: Path,
     output: Path,
+    settings: ConvertSettings,
     *,
     cancel_event: threading.Event | None = None,
 ) -> None:
@@ -704,12 +722,12 @@ def _render_html_to_single_page_pdf(
             if cancel_event is not None and cancel_event.is_set():
                 raise ConversionCancelledError("Conversion cancelled by user")
             page = browser.new_page(
-                viewport={"width": 1280, "height": 720},
-                device_scale_factor=1,
+                viewport={"width": settings.html_viewport_width, "height": settings.html_viewport_height},
+                device_scale_factor=settings.html_device_scale_factor,
             )
             page.emulate_media(media="screen")
             page.goto(source.as_uri(), wait_until="load", timeout=60000)
-            _wait_for_html_render_ready(page)
+            _wait_for_html_render_ready(page, settings.html_render_delay)
             width_px, height_px = _measure_html_render_size(page)
             if cancel_event is not None and cancel_event.is_set():
                 raise ConversionCancelledError("Conversion cancelled by user")
@@ -718,7 +736,7 @@ def _render_html_to_single_page_pdf(
                 width=f"{width_px}px",
                 height=f"{height_px}px",
                 margin={"top": "0px", "right": "0px", "bottom": "0px", "left": "0px"},
-                print_background=True,
+                print_background=settings.html_print_background,
                 prefer_css_page_size=False,
                 scale=1,
             )
@@ -761,7 +779,7 @@ def _html_pdf_launch_candidates(playwright) -> list[tuple[str, dict[str, str]]]:
     return candidates
 
 
-def _wait_for_html_render_ready(page) -> None:
+def _wait_for_html_render_ready(page, delay: float = 0.0) -> None:
     try:
         page.wait_for_load_state("networkidle", timeout=5000)
     except Exception:
@@ -785,6 +803,8 @@ def _wait_for_html_render_ready(page) -> None:
         }
         """
     )
+    if delay > 0:
+        page.wait_for_timeout(delay * 1000)
 
 
 def _measure_html_render_size(page) -> tuple[int, int]:

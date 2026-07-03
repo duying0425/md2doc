@@ -51,7 +51,8 @@ git push origin "v$Version"
 
 # 8. Create GitHub Release
 Write-Host "Creating GitHub Release and uploading build artifact..."
-$ExePath = Join-Path $Root "dist\md2doc.exe"
+$ExePath = Join-Path $Root "bin\md2doc.exe"
 gh release create "v$Version" $ExePath --title "v$Version" --notes "Release v$Version"
+
 
 Write-Host "Release v$Version published successfully!" -ForegroundColor Green

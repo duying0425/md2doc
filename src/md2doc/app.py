@@ -869,15 +869,32 @@ class Md2DocApp(tk.Tk):
         self._append_log(f"{len(items)} file(s) already up to date.")
 
     def _check_tools(self) -> None:
-        checks = check_dependencies(self._settings())
+        settings = self._settings()
+        checks = check_dependencies(settings)
         message = "\n".join(
             f"{check.name}: {'ok' if check.available else 'missing'} - {check.detail}"
             for check in checks
         )
         missing = missing_dependency_message(checks)
-        if missing:
-            message = f"{message}\n\n{missing}"
-        messagebox.showinfo("Conversion tools", message)
+        if not missing:
+            messagebox.showinfo("Conversion tools", f"{message}\n\nAll tools are ready!", parent=self)
+            return
+
+        if os.name == "nt":
+            confirm = messagebox.askyesno(
+                "Missing Conversion Tools",
+                f"{message}\n\nSome required tools are missing. Would you like md2doc to try installing them automatically now?",
+                parent=self,
+            )
+            if confirm:
+                err = _run_dependency_setup_window(self, settings.kind)
+                if err:
+                    messagebox.showerror("Installation failed", err, parent=self)
+                else:
+                    messagebox.showinfo("Success", "All tools have been installed successfully!", parent=self)
+                    self._scan()
+        else:
+            messagebox.showinfo("Conversion tools", f"{message}\n\n{missing}", parent=self)
 
     def _open_settings(self) -> None:
         project = self._require_project()
@@ -894,14 +911,6 @@ class Md2DocApp(tk.Tk):
                 "Project Settings",
                 "Quarto Markdown to PowerPoint projects are configured via the YAML header "
                 "inside the .qmd files. Use the Output box to choose where the .pptx "
-                "files are written.",
-            )
-            return
-        if project.kind == KIND_HTML2PDF:
-            messagebox.showinfo(
-                "Project Settings",
-                "HTML to PDF projects use the rendered HTML and CSS size to create one "
-                "custom-sized PDF page. Use the Output box to choose where the .pdf "
                 "files are written.",
             )
             return
@@ -1305,6 +1314,11 @@ class SettingsDialog(tk.Toplevel):
         self.mermaid_scale_var = tk.StringVar(value=str(project.mermaid_scale or ""))
         self.mermaid_min_dpi_var = tk.StringVar(value=str(project.mermaid_min_dpi))
         self.hr_to_pagebreak_var = tk.BooleanVar(value=project.hr_to_pagebreak)
+        self.html_viewport_width_var = tk.StringVar(value=str(project.html_viewport_width))
+        self.html_viewport_height_var = tk.StringVar(value=str(project.html_viewport_height))
+        self.html_device_scale_factor_var = tk.StringVar(value=str(project.html_device_scale_factor))
+        self.html_print_background_var = tk.BooleanVar(value=project.html_print_background)
+        self.html_render_delay_var = tk.StringVar(value=str(project.html_render_delay))
 
         self._build()
         self._center()
@@ -1316,19 +1330,24 @@ class SettingsDialog(tk.Toplevel):
         notebook = ttk.Notebook(self)
         notebook.grid(row=0, column=0, sticky="nsew", padx=self.parent._px(12), pady=self.parent._px(12))
 
-        document = ttk.Frame(notebook, padding=self.parent._px(12))
-        word = ttk.Frame(notebook, padding=self.parent._px(12))
-        mermaid = ttk.Frame(notebook, padding=self.parent._px(12))
-        advanced = ttk.Frame(notebook, padding=self.parent._px(12))
-        notebook.add(document, text="Document")
-        notebook.add(word, text="Word")
-        notebook.add(mermaid, text="Mermaid")
-        notebook.add(advanced, text="Advanced")
+        if self.project.kind == KIND_HTML2PDF:
+            html_tab = ttk.Frame(notebook, padding=self.parent._px(12))
+            notebook.add(html_tab, text="HTML to PDF")
+            self._build_html_tab(html_tab)
+        else:
+            document = ttk.Frame(notebook, padding=self.parent._px(12))
+            word = ttk.Frame(notebook, padding=self.parent._px(12))
+            mermaid = ttk.Frame(notebook, padding=self.parent._px(12))
+            advanced = ttk.Frame(notebook, padding=self.parent._px(12))
+            notebook.add(document, text="Document")
+            notebook.add(word, text="Word")
+            notebook.add(mermaid, text="Mermaid")
+            notebook.add(advanced, text="Advanced")
 
-        self._build_document_tab(document)
-        self._build_word_tab(word)
-        self._build_mermaid_tab(mermaid)
-        self._build_advanced_tab(advanced)
+            self._build_document_tab(document)
+            self._build_word_tab(word)
+            self._build_mermaid_tab(mermaid)
+            self._build_advanced_tab(advanced)
 
         buttons = ttk.Frame(self)
         buttons.grid(row=1, column=0, sticky="ew", padx=self.parent._px(12), pady=self.parent._pad(0, 12))
@@ -1479,6 +1498,25 @@ class SettingsDialog(tk.Toplevel):
         self.extra_args_text.grid(row=1, column=0, sticky="nsew", pady=self.parent._pad(8, 0))
         self.extra_args_text.insert("1.0", " ".join(self.project.extra_pandoc_args))
 
+    def _build_html_tab(self, frame: ttk.Frame) -> None:
+        frame.columnconfigure(1, weight=1)
+
+        ttk.Label(frame, text="Viewport Width (px)").grid(row=0, column=0, sticky="w", pady=self.parent._pad(8, 0))
+        ttk.Entry(frame, textvariable=self.html_viewport_width_var).grid(row=0, column=1, sticky="ew", pady=self.parent._pad(8, 0), padx=self.parent._pad(8, 0))
+
+        ttk.Label(frame, text="Viewport Height (px)").grid(row=1, column=0, sticky="w", pady=self.parent._pad(8, 0))
+        ttk.Entry(frame, textvariable=self.html_viewport_height_var).grid(row=1, column=1, sticky="ew", pady=self.parent._pad(8, 0), padx=self.parent._pad(8, 0))
+
+        ttk.Label(frame, text="Device Scale Factor").grid(row=2, column=0, sticky="w", pady=self.parent._pad(8, 0))
+        ttk.Entry(frame, textvariable=self.html_device_scale_factor_var).grid(row=2, column=1, sticky="ew", pady=self.parent._pad(8, 0), padx=self.parent._pad(8, 0))
+
+        ttk.Label(frame, text="Render Delay (seconds)").grid(row=3, column=0, sticky="w", pady=self.parent._pad(8, 0))
+        ttk.Entry(frame, textvariable=self.html_render_delay_var).grid(row=3, column=1, sticky="ew", pady=self.parent._pad(8, 0), padx=self.parent._pad(8, 0))
+
+        ttk.Checkbutton(frame, text="Print Background Graphics", variable=self.html_print_background_var).grid(
+            row=4, column=0, columnspan=2, sticky="w", pady=self.parent._pad(16, 0)
+        )
+
     def _browse_reference_docx(self) -> None:
         path = filedialog.askopenfilename(
             parent=self,
@@ -1490,30 +1528,59 @@ class SettingsDialog(tk.Toplevel):
 
     def _restore_defaults(self) -> None:
         defaults = ProjectConfig(name=self.project.name, root=self.project.root)
-        self.toc_var.set(defaults.toc)
-        self.toc_depth_var.set(str(defaults.toc_depth))
-        self.title_page_var.set(defaults.title_page)
-        self.title_var.set(defaults.title)
-        self.subtitle_var.set(defaults.subtitle)
-        self.author_var.set(defaults.author)
-        self.date_var.set(defaults.date)
-        self.number_sections_var.set(defaults.number_sections)
-        self.reference_docx_var.set(defaults.reference_docx)
-        self.default_font_var.set(defaults.default_font)
-        self.table_borders_var.set(defaults.table_borders)
-        self.hr_to_pagebreak_var.set(defaults.hr_to_pagebreak)
-        self.figure_numbering_var.set(defaults.figure_numbering)
-        self.figure_prefix_var.set(defaults.figure_prefix)
-        self.figure_caption_position_var.set(defaults.figure_caption_position)
-        self.mermaid_format_var.set(defaults.mermaid_format)
-        self.mermaid_theme_var.set(defaults.mermaid_theme)
-        self.mermaid_background_var.set(defaults.mermaid_background)
-        self.mermaid_scale_var.set(str(defaults.mermaid_scale or ""))
-        self.mermaid_min_dpi_var.set(str(defaults.mermaid_min_dpi))
-        self.extra_args_text.delete("1.0", tk.END)
-        self.extra_args_text.insert("1.0", " ".join(defaults.extra_pandoc_args))
+        if self.project.kind == KIND_HTML2PDF:
+            self.html_viewport_width_var.set(str(defaults.html_viewport_width))
+            self.html_viewport_height_var.set(str(defaults.html_viewport_height))
+            self.html_device_scale_factor_var.set(str(defaults.html_device_scale_factor))
+            self.html_print_background_var.set(defaults.html_print_background)
+            self.html_render_delay_var.set(str(defaults.html_render_delay))
+        else:
+            self.toc_var.set(defaults.toc)
+            self.toc_depth_var.set(str(defaults.toc_depth))
+            self.title_page_var.set(defaults.title_page)
+            self.title_var.set(defaults.title)
+            self.subtitle_var.set(defaults.subtitle)
+            self.author_var.set(defaults.author)
+            self.date_var.set(defaults.date)
+            self.number_sections_var.set(defaults.number_sections)
+            self.reference_docx_var.set(defaults.reference_docx)
+            self.default_font_var.set(defaults.default_font)
+            self.table_borders_var.set(defaults.table_borders)
+            self.hr_to_pagebreak_var.set(defaults.hr_to_pagebreak)
+            self.figure_numbering_var.set(defaults.figure_numbering)
+            self.figure_prefix_var.set(defaults.figure_prefix)
+            self.figure_caption_position_var.set(defaults.figure_caption_position)
+            self.mermaid_format_var.set(defaults.mermaid_format)
+            self.mermaid_theme_var.set(defaults.mermaid_theme)
+            self.mermaid_background_var.set(defaults.mermaid_background)
+            self.mermaid_scale_var.set(str(defaults.mermaid_scale or ""))
+            self.mermaid_min_dpi_var.set(str(defaults.mermaid_min_dpi))
+            if hasattr(self, "extra_args_text"):
+                self.extra_args_text.delete("1.0", tk.END)
+                self.extra_args_text.insert("1.0", " ".join(defaults.extra_pandoc_args))
 
     def _save(self) -> None:
+        if self.project.kind == KIND_HTML2PDF:
+            try:
+                width = _parse_int(self.html_viewport_width_var.get(), "Viewport Width", minimum=1)
+                height = _parse_int(self.html_viewport_height_var.get(), "Viewport Height", minimum=1)
+                scale = _parse_float(self.html_device_scale_factor_var.get(), "Device Scale Factor", minimum=0.01)
+                delay = _parse_float(self.html_render_delay_var.get(), "Render Delay", minimum=0.0)
+            except ValueError as exc:
+                messagebox.showerror("Settings", str(exc), parent=self)
+                return
+
+            self.project.html_viewport_width = width
+            self.project.html_viewport_height = height
+            self.project.html_device_scale_factor = scale
+            self.project.html_print_background = self.html_print_background_var.get()
+            self.project.html_render_delay = delay
+            self.project.save()
+            ProjectRegistry().add(self.project)
+            self.saved = True
+            self.destroy()
+            return
+
         try:
             extra_args = _split_extra_args(self.extra_args_text.get("1.0", "end").strip())
             self.project.toc_depth = _parse_int(self.toc_depth_var.get(), "TOC depth", minimum=1, maximum=6)
@@ -1603,12 +1670,18 @@ def _write_error_log(message: str) -> None:
         pass
 
 
-def _run_dependency_setup_window() -> str | None:
-    root = tk.Tk()
+def _run_dependency_setup_window(parent: tk.Tk | tk.Toplevel | None = None, kind: str = KIND_MD2DOC) -> str | None:
+    if parent is None:
+        root = tk.Tk()
+        root.withdraw()
+    else:
+        root = tk.Toplevel(parent)
+        root.transient(parent)
+        root.grab_set()
+
     root.title("md2doc setup")
     root.geometry("460x150")
     root.resizable(False, False)
-    root.withdraw()
 
     frame = ttk.Frame(root, padding=16)
     frame.grid(row=0, column=0, sticky="nsew")
@@ -1621,8 +1694,12 @@ def _run_dependency_setup_window() -> str | None:
     progress.grid(row=2, column=0, sticky="ew")
 
     root.update_idletasks()
-    x = root.winfo_screenwidth() // 2 - root.winfo_width() // 2
-    y = root.winfo_screenheight() // 2 - root.winfo_height() // 2
+    if parent is None:
+        x = root.winfo_screenwidth() // 2 - root.winfo_width() // 2
+        y = root.winfo_screenheight() // 2 - root.winfo_height() // 2
+    else:
+        x = parent.winfo_x() + parent.winfo_width() // 2 - root.winfo_width() // 2
+        y = parent.winfo_y() + parent.winfo_height() // 2 - root.winfo_height() // 2
     root.geometry(f"+{x}+{y}")
     root.deiconify()
 
@@ -1633,7 +1710,7 @@ def _run_dependency_setup_window() -> str | None:
 
     def worker() -> None:
         try:
-            ensure_startup_dependencies(on_progress=progress_callback)
+            ensure_startup_dependencies(kind=kind, on_progress=progress_callback)
         except Exception as exc:
             events.put(("error", str(exc)))
         finally:
@@ -1659,7 +1736,11 @@ def _run_dependency_setup_window() -> str | None:
 
     threading.Thread(target=worker, daemon=True).start()
     root.after(100, poll)
-    root.mainloop()
+
+    if parent is None:
+        root.mainloop()
+    else:
+        parent.wait_window(root)
 
     # Explicitly clean up tkinter widgets and variables on the main thread
     # to avoid deferred garbage collection on background threads.

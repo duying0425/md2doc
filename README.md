@@ -37,6 +37,7 @@ Open **Settings** in the desktop app to configure:
 - Document: table of contents, TOC depth, section numbering, title, subtitle, author, and date.
 - Word: `reference.docx`, default font (with preset choices), table border style, and an option to convert horizontal rules to page breaks.
 - Mermaid: format, theme, and background.
+- HTML to PDF: viewport width/height, device scale factor, render delay, and print background graphics.
 - Advanced: extra Pandoc arguments.
 
 For DOCX, a selected `reference.docx` has priority for Word-specific styling. If no reference file is selected, md2doc can generate `.md2doc/generated-reference.docx` for the configured font and table border options.
@@ -116,7 +117,7 @@ When the package is installed, replace `python -m md2doc` with `md2doc`.
 - `md2doc scan <folder>`: list source files in a project.
 - `md2doc plan <folder-or-file> [files...]`: print the conversion plan.
 - `md2doc convert <folder-or-file> [files...]`: run conversions.
-- `md2doc deps`: check installed Markdown conversion tools (Pandoc and `mermaid-filter`). Use `--kind html2pdf` to check Playwright and browser availability.
+- `md2doc deps`: check installed conversion tools. Use `--kind html2pdf` to check Playwright and browser availability. Accepts an optional `--install` flag (e.g. `md2doc deps --install --kind html2pdf`) to automatically download and configure missing dependencies.
 
 `convert` and `plan` accept either a project folder or one source file. When a
 folder is used, optional file arguments are resolved relative to the project

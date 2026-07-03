@@ -83,6 +83,32 @@ class ProjectKindTests(unittest.TestCase):
         self.assertEqual(config.kind, KIND_HTML2PDF)
         self.assertEqual(config.output_format, "pdf")
 
+    def test_html2pdf_settings_serialization(self) -> None:
+        config = ProjectConfig.from_dict(
+            {
+                "name": "Pages",
+                "root": "/tmp/pages",
+                "kind": KIND_HTML2PDF,
+                "html_viewport_width": 1920,
+                "html_viewport_height": 1080,
+                "html_device_scale_factor": 2.0,
+                "html_print_background": False,
+                "html_render_delay": 1.5,
+            }
+        )
+        self.assertEqual(config.html_viewport_width, 1920)
+        self.assertEqual(config.html_viewport_height, 1080)
+        self.assertEqual(config.html_device_scale_factor, 2.0)
+        self.assertFalse(config.html_print_background)
+        self.assertEqual(config.html_render_delay, 1.5)
+
+        serialized = config.to_dict()
+        self.assertEqual(serialized["html_viewport_width"], 1920)
+        self.assertEqual(serialized["html_viewport_height"], 1080)
+        self.assertEqual(serialized["html_device_scale_factor"], 2.0)
+        self.assertFalse(serialized["html_print_background"])
+        self.assertEqual(serialized["html_render_delay"], 1.5)
+
     def test_create_doc2md_project_emits_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = create_project(Path(tmp) / "proj", kind=KIND_DOC2MD)

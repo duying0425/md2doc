@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
-$DistRoot = Join-Path $Root "dist"
+$DistRoot = Join-Path $Root "bin"
 $BuildRoot = Join-Path $Root "build"
 New-Item -ItemType Directory -Path $DistRoot, $BuildRoot -Force | Out-Null
 
@@ -29,6 +29,7 @@ $windowMode = if ($Console) { "--console" } else { "--windowed" }
     --onefile `
     --name md2doc `
     --specpath $BuildRoot `
+    --distpath $DistRoot `
     $windowMode `
     --paths (Join-Path $Root "src") `
     --collect-all markitdown `
@@ -39,3 +40,4 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Created exe: $(Join-Path $DistRoot 'md2doc.exe')"
+

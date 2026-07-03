@@ -1082,7 +1082,7 @@ class Html2PdfConverterTests(unittest.TestCase):
             source = root / "poster.html"
             source.write_text("<main></main>", encoding="utf-8")
 
-            def fake_render(_source: Path, output: Path, *, cancel_event=None) -> None:
+            def fake_render(_source: Path, output: Path, *args, **kwargs) -> None:
                 output.write_bytes(b"%PDF-1.4\n")
 
             with (
@@ -1100,6 +1100,40 @@ class Html2PdfConverterTests(unittest.TestCase):
             self.assertTrue((root / "poster.pdf").exists())
             render.assert_called_once()
 
+    def test_run_conversions_passes_custom_html_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "poster.html"
+            source.write_text("<main></main>", encoding="utf-8")
+
+            settings = ConvertSettings(
+                kind=KIND_HTML2PDF,
+                output_dir=root,
+                html_viewport_width=1920,
+                html_viewport_height=1080,
+                html_device_scale_factor=2.5,
+                html_print_background=False,
+                html_render_delay=2.0,
+            )
+
+            def fake_render(_source: Path, output: Path, s: ConvertSettings, *, cancel_event=None) -> None:
+                self.assertEqual(s.html_viewport_width, 1920)
+                self.assertEqual(s.html_viewport_height, 1080)
+                self.assertEqual(s.html_device_scale_factor, 2.5)
+                self.assertFalse(s.html_print_background)
+                self.assertEqual(s.html_render_delay, 2.0)
+                output.write_bytes(b"%PDF-1.4\n")
+
+            with (
+                patch("md2doc.converter._check_html_pdf_runtime", return_value=DependencyCheck("Playwright/Chromium", "playwright", True, "ready")),
+                patch("md2doc.converter._render_html_to_single_page_pdf", side_effect=fake_render) as render,
+            ):
+                results = run_conversions(root, [source], settings)
+
+            self.assertEqual([result.status for result in results], ["converted"])
+            render.assert_called_once()
+
+@unittest.skipUnless(shutil.which("pandoc"), "Pandoc is required for Lua filter tests")
 class LuaFilterTests(unittest.TestCase):
     def test_png_scaling(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -9,7 +9,7 @@ from typing import Any
 
 PROJECT_DIR_NAME = ".md2doc"
 PROJECT_CONFIG_NAME = "project.json"
-CURRENT_PROJECT_CONFIG_VERSION = 4
+CURRENT_PROJECT_CONFIG_VERSION = 5
 
 KIND_MD2DOC = "md2doc"
 KIND_DOC2MD = "doc2md"
@@ -74,6 +74,11 @@ class ProjectConfig:
     figure_prefix: str = "图表"
     figure_caption_position: str = "below"
     hr_to_pagebreak: bool = True
+    html_viewport_width: int = 1280
+    html_viewport_height: int = 720
+    html_device_scale_factor: float = 1.0
+    html_print_background: bool = True
+    html_render_delay: float = 0.0
     config_version: int = CURRENT_PROJECT_CONFIG_VERSION
     loaded_config_version: int = field(default=CURRENT_PROJECT_CONFIG_VERSION, repr=False, compare=False)
     config_was_migrated: bool = field(default=False, repr=False, compare=False)
@@ -124,6 +129,11 @@ class ProjectConfig:
             "figure_prefix": self.figure_prefix,
             "figure_caption_position": self.figure_caption_position,
             "hr_to_pagebreak": self.hr_to_pagebreak,
+            "html_viewport_width": self.html_viewport_width,
+            "html_viewport_height": self.html_viewport_height,
+            "html_device_scale_factor": self.html_device_scale_factor,
+            "html_print_background": self.html_print_background,
+            "html_render_delay": self.html_render_delay,
         }
 
     @classmethod
@@ -163,6 +173,18 @@ class ProjectConfig:
         if raw_figure_prefix == "图" and stored_config_version < 4:
             raw_figure_prefix = "图表"
 
+        html_viewport_width = int(data.get("html_viewport_width", 1280) or 1280)
+        html_viewport_height = int(data.get("html_viewport_height", 720) or 720)
+        try:
+            html_device_scale_factor = float(data.get("html_device_scale_factor", 1.0) if data.get("html_device_scale_factor") is not None else 1.0)
+        except (ValueError, TypeError):
+            html_device_scale_factor = 1.0
+        html_print_background = bool(data.get("html_print_background", True))
+        try:
+            html_render_delay = float(data.get("html_render_delay", 0.0) if data.get("html_render_delay") is not None else 0.0)
+        except (ValueError, TypeError):
+            html_render_delay = 0.0
+
         return cls(
             name=str(data.get("name") or root.name),
             root=root,
@@ -193,6 +215,11 @@ class ProjectConfig:
             figure_prefix=raw_figure_prefix,
             figure_caption_position=str(data.get("figure_caption_position") or "below"),
             hr_to_pagebreak=bool(data.get("hr_to_pagebreak", True)),
+            html_viewport_width=html_viewport_width,
+            html_viewport_height=html_viewport_height,
+            html_device_scale_factor=html_device_scale_factor,
+            html_print_background=html_print_background,
+            html_render_delay=html_render_delay,
             loaded_config_version=stored_config_version,
             config_was_migrated=stored_config_version < CURRENT_PROJECT_CONFIG_VERSION,
         )

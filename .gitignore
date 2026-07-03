@@ -7,3 +7,5 @@ build/
 dist/
 output/
 .md2doc/manifest.json
+bin/
+

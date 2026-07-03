@@ -38,6 +38,7 @@ docs/guide.md   -> docs/guide.docx
 - **文档（Document）**：目录、目录深度、章节编号、标题、副标题、作者和日期。
 - **Word**：`reference.docx`、默认字体（提供预设常用字体下拉框）、表格边框样式以及是否将水平分割线 (`---`) 转换为分页符。
 - **Mermaid**：图片格式、主题和背景。
+- **HTML 转 PDF**：浏览器视口宽高、设备缩放因子、渲染等待延迟以及是否打印背景图形。
 - **高级（Advanced）**：额外的 Pandoc 参数。
 
 对于 DOCX 格式，选中的 `reference.docx` 在 Word 特征样式上具有最高优先级。如果未选择引用文件，md2doc 可以根据配置的字体和表格边框选项自动生成 `.md2doc/generated-reference.docx`。
@@ -115,7 +116,7 @@ python -m md2doc deps
 - `md2doc scan <folder>`：列出项目中的源文件。
 - `md2doc plan <folder-or-file> [files...]`：打印转换计划。
 - `md2doc convert <folder-or-file> [files...]`：执行文档转换。
-- `md2doc deps`：检查 Markdown 转换工具（Pandoc 和 `mermaid-filter`）的安装状态。若使用 `--kind html2pdf` 参数，可检查 Playwright 及浏览器可用性。
+- `md2doc deps`：检查转换工具的安装状态。若使用 `--kind html2pdf` 参数，可检查 Playwright 及浏览器可用性。支持可选的 `--install` 参数（如 `md2doc deps --install --kind html2pdf`）自动下载和安装缺失的外部工具。
 
 `convert` 和 `plan` 既可以接收项目文件夹，也可以接收单个 Markdown 文件。当指定文件夹时，可选的文件参数会解析为相对于项目文件夹的相对路径：
 

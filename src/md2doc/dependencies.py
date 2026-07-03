@@ -8,6 +8,7 @@ import subprocess
 
 from ._process import hidden_subprocess_kwargs
 from .converter import ConvertSettings, check_dependencies, missing_dependency_message
+from .project import KIND_DOC2MD, KIND_HTML2PDF, KIND_MD2DOC, KIND_QMD2PPT
 
 
 InstallerRunner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
@@ -15,55 +16,106 @@ ProgressCallback = Callable[[str], None]
 
 
 def ensure_startup_dependencies(
+    kind: str = KIND_MD2DOC,
     *,
     on_progress: ProgressCallback | None = None,
     runner: InstallerRunner | None = None,
 ) -> None:
-    """Install external conversion tools when the default GUI toolchain is missing."""
+    """Install external conversion tools when the toolchain for the specified project kind is missing."""
 
     _refresh_windows_path()
-    settings = ConvertSettings()
+    settings = ConvertSettings(kind=kind)
     checks = check_dependencies(settings)
     if all(check.available for check in checks):
-        _emit(on_progress, "Conversion tools are ready.")
+        _emit(on_progress, f"Conversion tools for {kind} are ready.")
         return
 
     if os.name != "nt":
         raise RuntimeError(missing_dependency_message(checks))
 
     run = runner or _run_command
-    _emit(on_progress, "Installing missing conversion tools...")
+    _emit(on_progress, f"Installing missing conversion tools for {kind}...")
 
-    if not _tool_available("pandoc"):
-        _install_with_winget(
-            "Pandoc",
-            "JohnMacFarlane.Pandoc",
-            run,
-            on_progress,
-        )
-        _refresh_windows_path()
+    if kind == KIND_MD2DOC:
+        if not _tool_available("pandoc"):
+            _install_with_winget(
+                "Pandoc",
+                "JohnMacFarlane.Pandoc",
+                run,
+                on_progress,
+            )
+            _refresh_windows_path()
 
-    if not _tool_available("npm"):
-        _install_with_winget(
-            "Node.js LTS",
-            "OpenJS.NodeJS.LTS",
-            run,
-            on_progress,
-        )
-        _refresh_windows_path()
+        if not _tool_available("npm"):
+            _install_with_winget(
+                "Node.js LTS",
+                "OpenJS.NodeJS.LTS",
+                run,
+                on_progress,
+            )
+            _refresh_windows_path()
 
-    if not _tool_available("mermaid-filter"):
-        npm = _resolve_npm()
-        if not npm:
-            raise RuntimeError("npm was not found after installing Node.js.")
-        _emit(on_progress, "Installing mermaid-filter with npm...")
-        _run_or_raise([npm, "install", "-g", "mermaid-filter"], run)
-        _refresh_windows_path()
+        if not _tool_available("mermaid-filter"):
+            npm = _resolve_npm()
+            if not npm:
+                raise RuntimeError("npm was not found after installing Node.js.")
+            _emit(on_progress, "Installing mermaid-filter with npm...")
+            _run_or_raise([npm, "install", "-g", "mermaid-filter"], run)
+            _refresh_windows_path()
+
+    elif kind == KIND_QMD2PPT:
+        if not _tool_available("quarto"):
+            _install_quarto(run, on_progress)
+            _refresh_windows_path()
+
+    elif kind == KIND_HTML2PDF:
+        playwright_check = next((c for c in checks if c.name == "Playwright/Chromium"), None)
+        if playwright_check and not playwright_check.available:
+            _install_playwright_chromium(run, on_progress)
+            _refresh_windows_path()
 
     final_checks = check_dependencies(settings)
     if not all(check.available for check in final_checks):
         raise RuntimeError(missing_dependency_message(final_checks))
     _emit(on_progress, "Dependency setup completed.")
+
+
+def _install_quarto(runner: InstallerRunner, on_progress: ProgressCallback | None) -> None:
+    _install_with_winget(
+        "Quarto",
+        "Posit.Quarto",
+        runner,
+        on_progress,
+    )
+
+
+def _install_playwright_chromium(runner: InstallerRunner, on_progress: ProgressCallback | None) -> None:
+    _emit(on_progress, "Installing Playwright Chromium browser...")
+    try:
+        from playwright._impl._driver import compute_driver_executable, get_driver_env
+        driver_executable, driver_cli = compute_driver_executable()
+        env = get_driver_env()
+    except Exception as exc:
+        raise RuntimeError(f"Playwright python package is not fully installed: {exc}")
+
+    args = [driver_executable, "install", "chromium"]
+    if runner == _run_command:
+        full_env = os.environ.copy()
+        full_env.update(env)
+        completed = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=full_env,
+            **hidden_subprocess_kwargs(),
+        )
+    else:
+        completed = runner(args)
+
+    if completed.returncode != 0:
+        output = (completed.stderr or completed.stdout or "").strip()
+        raise RuntimeError(output or "Playwright browser installation failed.")
 
 
 def _install_with_winget(
@@ -154,6 +206,9 @@ def _refresh_windows_path() -> None:
         _env_path("APPDATA") / "npm",
         _env_path("LOCALAPPDATA") / "Pandoc",
         _env_path("LOCALAPPDATA") / "Microsoft" / "WinGet" / "Links",
+        _env_path("ProgramFiles") / "Quarto" / "bin",
+        _env_path("ProgramFiles(x86)") / "Quarto" / "bin",
+        _env_path("LOCALAPPDATA") / "Programs" / "Quarto" / "bin",
     ]
     for path in paths:
         if path.exists():

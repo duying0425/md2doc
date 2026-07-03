@@ -136,6 +136,13 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertIn("Input file not found", stderr.getvalue())
 
+    def test_deps_command_with_install_flag(self) -> None:
+        with patch("md2doc.dependencies.ensure_startup_dependencies") as mock_ensure, patch("md2doc.cli.check_dependencies", return_value=[]) as mock_check:
+            code = cli.main(["deps", "--install", "--kind", "qmd2ppt"])
+            self.assertEqual(code, 0)
+            mock_ensure.assert_called_once_with(kind="qmd2ppt", on_progress=unittest.mock.ANY)
+            mock_check.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
