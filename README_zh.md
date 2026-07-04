@@ -49,10 +49,11 @@ docs/guide.md   -> docs/guide.docx
 
 根据您使用的项目类型安装对应的外部转换工具：
 
-- **Markdown 转文档**：安装 Pandoc 和 `mermaid-filter`：
+- **Markdown 转文档**：安装 Pandoc 和 `mermaid-filter`。Mermaid 图表渲染还需要 Microsoft Edge/Google Chrome 或 Playwright Chromium：
   ```powershell
   winget install JohnMacFarlane.Pandoc
   npm install -g mermaid-filter
+  python -m playwright install chromium
   ```
 - **Office 文档转 Markdown**：必需的 Python 库 `markitdown` 会在安装项目包时作为依赖自动安装。
 - **Quarto 转 PowerPoint**：从 [quarto.org](https://quarto.org/docs/get-started/) 安装 Quarto CLI。

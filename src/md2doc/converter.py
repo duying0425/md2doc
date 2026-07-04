@@ -251,6 +251,7 @@ def check_dependencies(settings: ConvertSettings) -> list[DependencyCheck]:
     return [
         _check_command("Pandoc", settings.pandoc_cmd),
         _check_command("mermaid-filter", settings.mermaid_filter_cmd, allow_version_failure=True),
+        _check_mermaid_browser_runtime(),
     ]
 
 
@@ -264,6 +265,11 @@ def missing_dependency_message(checks: Iterable[DependencyCheck]) -> str:
     names = {check.name for check in missing}
     if names & {"Pandoc", "mermaid-filter"}:
         lines.append("Install Pandoc and then run: npm install -g mermaid-filter")
+    if "Mermaid browser" in names:
+        lines.append(
+            "Install Microsoft Edge/Google Chrome, or install Playwright Chromium: "
+            "python -m playwright install chromium"
+        )
     if "MarkItDown" in names:
         lines.append("Install MarkItDown: pip install 'markitdown[docx,pptx,xlsx]'")
     if "Quarto" in names:
@@ -413,6 +419,8 @@ def run_conversions(
     if needs_convert:
         _validate_settings(root, settings)
         checks = check_dependencies(settings)
+        if settings.kind == KIND_MD2DOC and not _plans_need_mermaid(needs_convert):
+            checks = [check for check in checks if check.name != "Mermaid browser"]
         message = missing_dependency_message(checks)
         if message:
             raise RuntimeError(message)
@@ -478,6 +486,24 @@ def _file_fingerprint_from_stat(path: Path, stat: os.stat_result) -> FileFingerp
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return FileFingerprint(size=stat.st_size, mtime_ns=stat.st_mtime_ns, sha256=digest.hexdigest())
+
+
+def _plans_need_mermaid(items: Iterable[PlanItem]) -> bool:
+    return any(_source_contains_mermaid_block(item.source) for item in items)
+
+
+def _source_contains_mermaid_block(path: Path) -> bool:
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    for line in text.splitlines():
+        stripped = line.strip().lower()
+        if (stripped.startswith("```") or stripped.startswith("~~~")) and "mermaid" in stripped:
+            return True
+    return False
 
 
 def settings_signature(settings: ConvertSettings, project_root: Path | None = None) -> str:
@@ -639,7 +665,7 @@ def _run_one(
     item.output.parent.mkdir(parents=True, exist_ok=True)
     cmd = _pandoc_command(project_root, item, settings)
     env = os.environ.copy()
-    env.update(_mermaid_environment(settings))
+    env.update(_mermaid_environment(settings, project_root))
     env["MERMAID_FILTER_LOC"] = _shorten_windows_path(_ensure_mermaid_image_dir(project_root, item))
     env["MD2DOC_RESOURCE_PATHS"] = os.pathsep.join(_pandoc_resource_paths(item, project_root))
     mermaid_error_path = _reset_mermaid_filter_error_log(item.source.parent)
@@ -1268,7 +1294,7 @@ local function caption_block(caption_text)
 
   local xml = table.concat({
     '<w:p>',
-    '<w:pPr><w:pStyle w:val="Caption"/></w:pPr>',
+    '<w:pPr><w:pStyle w:val="ImageCaption"/></w:pPr>',
     '<w:r><w:t xml:space="preserve">', xml_escape(prefix .. " "), '</w:t></w:r>',
     '<w:fldSimple w:instr="', attr_escape(instr), '">',
     '<w:r><w:t>', tostring(figure_count), '</w:t></w:r>',
@@ -1462,7 +1488,7 @@ def _pandoc_format_args(project_root: Path, item: PlanItem, settings: ConvertSet
     return args
 
 
-def _mermaid_environment(settings: ConvertSettings) -> dict[str, str]:
+def _mermaid_environment(settings: ConvertSettings, project_root: Path | None = None) -> dict[str, str]:
     env = {
         "MERMAID_FILTER_FORMAT": settings.mermaid_format or "png",
         "MERMAID_FILTER_THEME": settings.mermaid_theme or "default",
@@ -1473,11 +1499,57 @@ def _mermaid_environment(settings: ConvertSettings) -> dict[str, str]:
     if settings.mermaid_min_dpi > 0:
         env["MERMAID_FILTER_MIN_DPI"] = str(settings.mermaid_min_dpi)
 
-    if "PUPPETEER_EXECUTABLE_PATH" not in os.environ:
-        browser_path = _known_html_pdf_browser_path()
+    if _active_env_path("PUPPETEER_EXECUTABLE_PATH") is None:
+        browser_path = _known_mermaid_browser_path()
         if browser_path:
             env["PUPPETEER_EXECUTABLE_PATH"] = str(browser_path)
     return env
+
+
+def _known_mermaid_browser_path() -> Path | None:
+    env_browser = _active_env_path("PUPPETEER_EXECUTABLE_PATH")
+    if env_browser is not None:
+        return env_browser
+    return _known_html_pdf_browser_path() or _known_puppeteer_browser_path()
+
+
+def _active_env_path(name: str) -> Path | None:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return None
+    path = Path(_strip_quotes(value)).expanduser()
+    try:
+        path = path.resolve()
+    except OSError:
+        return None
+    return path if path.exists() else None
+
+
+def _check_mermaid_browser_runtime() -> DependencyCheck:
+    browser_path = _known_mermaid_browser_path()
+    if browser_path:
+        return DependencyCheck(
+            name="Mermaid browser",
+            command="chromium",
+            available=True,
+            detail=f"found browser at {browser_path}",
+        )
+
+    env_browser = os.environ.get("PUPPETEER_EXECUTABLE_PATH", "").strip()
+    if env_browser:
+        return DependencyCheck(
+            name="Mermaid browser",
+            command="chromium",
+            available=False,
+            detail=f"PUPPETEER_EXECUTABLE_PATH points to a missing browser: {env_browser}",
+        )
+
+    return DependencyCheck(
+        name="Mermaid browser",
+        command="chromium",
+        available=False,
+        detail="No Edge, Chrome, or Chromium browser was found",
+    )
 
 
 
@@ -1945,6 +2017,13 @@ def _env_path(name: str) -> Path | None:
 
 
 def _known_html_pdf_browser_path() -> Path | None:
+    system_browser = _known_system_chromium_browser_path()
+    if system_browser:
+        return system_browser
+    return _known_playwright_chromium_path()
+
+
+def _known_system_chromium_browser_path() -> Path | None:
     if os.name == "nt":
         for path in _windows_html_pdf_browser_candidates():
             if path.exists():
@@ -1961,6 +2040,41 @@ def _known_html_pdf_browser_path() -> Path | None:
         path = shutil.which(command)
         if path:
             return Path(path)
+    return None
+
+
+def _known_playwright_chromium_path() -> Path | None:
+    if importlib.util.find_spec("playwright") is None:
+        return None
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            bundled = Path(playwright.chromium.executable_path)
+    except Exception:
+        return None
+    return bundled if bundled.exists() else None
+
+
+def _known_puppeteer_browser_path() -> Path | None:
+    roots: list[Path] = []
+    cache_dir = os.environ.get("PUPPETEER_CACHE_DIR", "").strip()
+    if cache_dir:
+        roots.append(Path(_strip_quotes(cache_dir)).expanduser())
+    try:
+        roots.append(Path.home() / ".cache" / "puppeteer")
+    except RuntimeError:
+        pass
+    local_app_data = _env_path("LOCALAPPDATA")
+    if local_app_data:
+        roots.append(local_app_data / "puppeteer")
+
+    filenames = ("chrome.exe", "chromium.exe") if os.name == "nt" else ("chrome", "chromium")
+    for root in _dedupe_paths(roots):
+        for filename in filenames:
+            for path in _find_named_files(root, filename, limit=10):
+                if path.exists():
+                    return path
     return None
 
 

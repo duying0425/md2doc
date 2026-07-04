@@ -51,6 +51,31 @@ class DependencySetupTests(unittest.TestCase):
         self.assertEqual(calls[2], ["npm", "install", "-g", "mermaid-filter"])
         self.assertIn("Dependency setup completed.", progress)
 
+    def test_missing_mermaid_browser_installs_playwright_chromium(self) -> None:
+        progress: list[str] = []
+        missing = [
+            _check("Pandoc", True),
+            _check("mermaid-filter", True),
+            _check("Mermaid browser", False),
+        ]
+        ready = [
+            _check("Pandoc", True),
+            _check("mermaid-filter", True),
+            _check("Mermaid browser", True),
+        ]
+
+        with (
+            patch("md2doc.dependencies.os.name", "nt"),
+            patch("md2doc.dependencies.check_dependencies", side_effect=[missing, ready]),
+            patch("md2doc.dependencies._tool_available", return_value=True),
+            patch("md2doc.dependencies._install_playwright_chromium") as install_browser,
+            patch("md2doc.dependencies._refresh_windows_path"),
+        ):
+            ensure_startup_dependencies(on_progress=progress.append, runner=_ok)
+
+        install_browser.assert_called_once_with(_ok, progress.append)
+        self.assertIn("Dependency setup completed.", progress)
+
     def test_winget_missing_reports_actionable_error(self) -> None:
         missing = [_check("Pandoc", False), _check("mermaid-filter", True)]
 
@@ -63,6 +88,73 @@ class DependencySetupTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "winget was not found"):
                 ensure_startup_dependencies(runner=_ok)
+
+    def test_missing_quarto_installs_with_winget(self) -> None:
+        calls: list[list[str]] = []
+        progress: list[str] = []
+        missing = [_check("Quarto", False)]
+        ready = [_check("Quarto", True)]
+
+        with (
+            patch("md2doc.dependencies.os.name", "nt"),
+            patch("md2doc.dependencies.check_dependencies", side_effect=[missing, ready]),
+            patch("md2doc.dependencies._tool_available", return_value=False),
+            patch("md2doc.dependencies._resolve_winget", return_value="winget"),
+            patch("md2doc.dependencies._refresh_windows_path"),
+        ):
+            ensure_startup_dependencies(
+                kind="qmd2ppt",
+                on_progress=progress.append,
+                runner=lambda args: calls.append(list(args)) or _ok(args),
+            )
+
+        self.assertEqual(calls[0][:5], ["winget", "install", "--id", "Posit.Quarto", "--exact"])
+        self.assertIn("Dependency setup completed.", progress)
+
+    def test_missing_html2pdf_playwright_installs(self) -> None:
+        progress: list[str] = []
+        missing = [_check("Playwright/Chromium", False)]
+        ready = [_check("Playwright/Chromium", True)]
+
+        with (
+            patch("md2doc.dependencies.os.name", "nt"),
+            patch("md2doc.dependencies.check_dependencies", side_effect=[missing, ready]),
+            patch("md2doc.dependencies._install_playwright_chromium") as install_browser,
+            patch("md2doc.dependencies._refresh_windows_path"),
+        ):
+            ensure_startup_dependencies(
+                kind="html2pdf",
+                on_progress=progress.append,
+                runner=_ok,
+            )
+
+        install_browser.assert_called_once_with(_ok, progress.append)
+        self.assertIn("Dependency setup completed.", progress)
+
+    def test_installation_raises_runtime_error_on_non_windows(self) -> None:
+        missing = [_check("Pandoc", False)]
+
+        with (
+            patch("md2doc.dependencies.os.name", "posix"),
+            patch("md2doc.dependencies.check_dependencies", return_value=missing),
+        ):
+            with self.assertRaises(RuntimeError):
+                ensure_startup_dependencies(runner=_ok)
+
+    def test_installer_fails_raises_runtime_error(self) -> None:
+        missing = [_check("Pandoc", False)]
+
+        def _fail(args: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(args=args, returncode=1, stdout="", stderr="Install failed")
+
+        with (
+            patch("md2doc.dependencies.os.name", "nt"),
+            patch("md2doc.dependencies.check_dependencies", return_value=missing),
+            patch("md2doc.dependencies._tool_available", return_value=False),
+            patch("md2doc.dependencies._resolve_winget", return_value="winget"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Install failed"):
+                ensure_startup_dependencies(runner=_fail)
 
 
 def _ok(args: object) -> subprocess.CompletedProcess[str]:

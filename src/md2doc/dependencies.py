@@ -63,6 +63,10 @@ def ensure_startup_dependencies(
             _run_or_raise([npm, "install", "-g", "mermaid-filter"], run)
             _refresh_windows_path()
 
+        if _missing_check(checks, "Mermaid browser"):
+            _install_playwright_chromium(run, on_progress)
+            _refresh_windows_path()
+
     elif kind == KIND_QMD2PPT:
         if not _tool_available("quarto"):
             _install_quarto(run, on_progress)
@@ -161,6 +165,13 @@ def _run_or_raise(args: Sequence[str], runner: InstallerRunner) -> None:
     output = (completed.stderr or completed.stdout or "").strip()
     command = " ".join(args)
     raise RuntimeError(output or f"Command failed: {command}")
+
+
+def _missing_check(checks: Sequence[object], name: str) -> bool:
+    return any(
+        getattr(check, "name", "") == name and not bool(getattr(check, "available", False))
+        for check in checks
+    )
 
 
 def _tool_available(command: str) -> bool:

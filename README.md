@@ -47,10 +47,11 @@ DOCX image paragraphs are centered automatically after conversion.
 
 Install the external conversion tools depending on your project type:
 
-- **Markdown to documents**: Install Pandoc and `mermaid-filter`:
+- **Markdown to documents**: Install Pandoc and `mermaid-filter`. Mermaid diagram rendering also needs Microsoft Edge/Google Chrome or Playwright Chromium:
   ```powershell
   winget install JohnMacFarlane.Pandoc
   npm install -g mermaid-filter
+  python -m playwright install chromium
   ```
 - **Office documents to Markdown**: The required `markitdown` Python package is automatically installed as a dependency.
 - **Quarto Markdown to PowerPoint**: Install Quarto CLI from [quarto.org](https://quarto.org/docs/get-started/).

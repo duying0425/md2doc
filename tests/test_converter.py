@@ -16,6 +16,7 @@ import zipfile
 from md2doc.converter import (
     BuildManifest,
     ConvertSettings,
+    ConversionResult,
     DependencyCheck,
     _center_docx_images,
     _ensure_figure_caption_lua,
@@ -412,20 +413,64 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(env["MERMAID_FILTER_MIN_DPI"], "360.0")
 
     def test_mermaid_environment_sets_puppeteer_executable_path(self) -> None:
-        with patch("md2doc.converter._known_html_pdf_browser_path") as mock_browser:
+        with (
+            patch("md2doc.converter._known_html_pdf_browser_path") as mock_browser,
+            patch("md2doc.converter._known_puppeteer_browser_path", return_value=None),
+        ):
             mock_browser.return_value = Path("/mocked/path/to/chrome")
             with patch.dict(os.environ, {}, clear=True):
                 env = _mermaid_environment(ConvertSettings())
                 self.assertEqual(env.get("PUPPETEER_EXECUTABLE_PATH"), str(Path("/mocked/path/to/chrome")))
+                self.assertNotIn("MERMAID_FILTER_PUPPETEER_CONFIG", env)
 
-            with patch.dict(os.environ, {"PUPPETEER_EXECUTABLE_PATH": "/env/path/to/chrome"}, clear=True):
-                env = _mermaid_environment(ConvertSettings())
-                self.assertNotIn("PUPPETEER_EXECUTABLE_PATH", env)
+            with tempfile.TemporaryDirectory() as tmp:
+                env_browser = Path(tmp) / "chrome.exe"
+                env_browser.write_text("", encoding="utf-8")
+                with patch.dict(os.environ, {"PUPPETEER_EXECUTABLE_PATH": str(env_browser)}, clear=True):
+                    env = _mermaid_environment(ConvertSettings())
+                    self.assertNotIn("PUPPETEER_EXECUTABLE_PATH", env)
 
             mock_browser.return_value = None
             with patch.dict(os.environ, {}, clear=True):
                 env = _mermaid_environment(ConvertSettings())
                 self.assertNotIn("PUPPETEER_EXECUTABLE_PATH", env)
+
+    def test_run_conversions_allows_missing_mermaid_browser_without_mermaid_block(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "plain.md"
+            source.write_text("# Plain\n\nNo diagrams here.", encoding="utf-8")
+            checks = [
+                DependencyCheck("Pandoc", "pandoc", True, "ready"),
+                DependencyCheck("mermaid-filter", "mermaid-filter", True, "ready"),
+                DependencyCheck("Mermaid browser", "chromium", False, "missing"),
+            ]
+
+            def fake_run(_root: Path, item, _settings, *, cancel_event=None) -> ConversionResult:
+                return ConversionResult(item=item, status="converted", message="converted", returncode=0)
+
+            with (
+                patch("md2doc.converter.check_dependencies", return_value=checks),
+                patch("md2doc.converter._run_one", side_effect=fake_run),
+            ):
+                results = run_conversions(root, [source], ConvertSettings(output_dir=root))
+
+            self.assertEqual(results[0].status, "converted")
+
+    def test_run_conversions_requires_mermaid_browser_for_mermaid_block(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "diagram.md"
+            source.write_text("```{.mermaid}\ngraph TD; A-->B;\n```", encoding="utf-8")
+            checks = [
+                DependencyCheck("Pandoc", "pandoc", True, "ready"),
+                DependencyCheck("mermaid-filter", "mermaid-filter", True, "ready"),
+                DependencyCheck("Mermaid browser", "chromium", False, "missing"),
+            ]
+
+            with patch("md2doc.converter.check_dependencies", return_value=checks):
+                with self.assertRaisesRegex(RuntimeError, "Mermaid browser"):
+                    run_conversions(root, [source], ConvertSettings(output_dir=root))
 
     def test_docx_image_paragraphs_are_centered(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -489,7 +534,7 @@ class ConverterTests(unittest.TestCase):
             self.assertIn("w:fldSimple", document)
             self.assertIn("SEQ 图", document)
             self.assertIn("System architecture", document)
-            self.assertIn('w:pStyle w:val="Caption"', document)
+            self.assertIn('w:pStyle w:val="ImageCaption"', document)
 
     def test_generated_reference_docx_patches_font_and_table_borders(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1378,12 +1423,123 @@ class LuaFilterTests(unittest.TestCase):
             )
             self.assertEqual(results_no_pb[0].status, "converted")
             output_file_no_pb = results_no_pb[0].item.output
-            
             with zipfile.ZipFile(output_file_no_pb) as docx:
                 document_no_pb = docx.read("word/document.xml").decode("utf-8")
             self.assertNotIn('<w:br w:type="page"/>', document_no_pb)
 
 
+class ConverterInternalHelperTests(unittest.TestCase):
+    def test_windows_short_path_handles_errors_and_fallbacks(self) -> None:
+        from md2doc.converter import _windows_short_path, _shorten_windows_path
+        
+        # Test non-windows / ctypes import failure fallback
+        with patch("sys.platform", "posix"), patch("builtins.__import__", side_effect=ImportError):
+            self.assertIsNone(_windows_short_path("/some/long/path"))
+
+        # Test failure where GetShortPathNameW is not found
+        class FakeKernel32:
+            @property
+            def GetShortPathNameW(self):
+                raise AttributeError("not found")
+
+        with patch("ctypes.windll.kernel32", FakeKernel32()):
+            self.assertIsNone(_windows_short_path("/some/long/path"))
+
+        # Test shorten_windows_path falls back to input string if _windows_short_path returns None
+        with patch("md2doc.converter._windows_short_path", return_value=None):
+            path = Path("some_file.txt")
+            self.assertEqual(_shorten_windows_path(path), str(path))
+
+    def test_pandoc_failure_message_formatting(self) -> None:
+        from md2doc.converter import _pandoc_failure_message
+        import subprocess
+
+        # Standard stderr and stdout empty, no mermaid error
+        proc1 = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="")
+        self.assertEqual(_pandoc_failure_message(proc1, ""), "Pandoc failed")
+
+        # Standard stderr set
+        proc2 = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="Error output")
+        self.assertEqual(_pandoc_failure_message(proc2, ""), "Error output")
+
+        # Stderr, stdout, and mermaid error all set
+        proc3 = subprocess.CompletedProcess(args=[], returncode=1, stdout="Stdout output", stderr="Stderr output")
+        self.assertEqual(
+            _pandoc_failure_message(proc3, "Mermaid drawing failed"),
+            "Stderr output\n\nStdout output\n\nmermaid-filter.err:\nMermaid drawing failed"
+        )
+
+    def test_lua_string_literal_serialization(self) -> None:
+        from md2doc.converter import _lua_string_literal
+
+        self.assertEqual(_lua_string_literal("hello"), '"hello"')
+        self.assertEqual(_lua_string_literal("hello \"world\""), '"hello \\"world\\""')
+        # Check unicode handling (ensure_ascii=False)
+        self.assertEqual(_lua_string_literal("中文"), '"中文"')
+
+    def test_remove_file_suppresses_exceptions(self) -> None:
+        from md2doc.converter import _remove_file
+
+        # Removing non-existent file should not raise FileNotFoundError
+        _remove_file(Path("non_existent_file_xyz_123.txt"))
+
+        # Check OSError handling
+        mock_path = unittest.mock.MagicMock(spec=Path)
+        mock_path.unlink.side_effect = OSError("Permission denied")
+        _remove_file(mock_path)  # Should not raise
+
+    def test_should_use_markitdown_api(self) -> None:
+        from md2doc.converter import _should_use_markitdown_api
+
+        # Not markitdown command
+        self.assertFalse(_should_use_markitdown_api("pandoc"))
+        self.assertFalse(_should_use_markitdown_api(""))
+
+        # Test command exists in PATH -> should return False because command is available directly
+        with patch("md2doc.converter._command_exists", return_value=True):
+            self.assertFalse(_should_use_markitdown_api("markitdown"))
+
+        # Test command does not exist but API available -> should return True
+        with (
+            patch("md2doc.converter._command_exists", return_value=False),
+            patch("md2doc.converter._markitdown_api_available", return_value=True)
+        ):
+            self.assertTrue(_should_use_markitdown_api("markitdown"))
+
+        # Test command does not exist and API not available -> should return False
+        with (
+            patch("md2doc.converter._command_exists", return_value=False),
+            patch("md2doc.converter._markitdown_api_available", return_value=False)
+        ):
+            self.assertFalse(_should_use_markitdown_api("markitdown"))
+
+    def test_check_markitdown_dependency(self) -> None:
+        from md2doc.converter import _check_markitdown
+
+        # 1. Command exists
+        with patch("md2doc.converter._command_exists", return_value=True):
+            check = _check_markitdown("markitdown")
+            self.assertTrue(check.available)
+            self.assertIn("found at", check.detail)
+
+        # 2. Command does not exist, but API is available
+        with (
+            patch("md2doc.converter._command_exists", return_value=False),
+            patch("md2doc.converter._should_use_markitdown_api", return_value=True)
+        ):
+            check = _check_markitdown("markitdown")
+            self.assertTrue(check.available)
+            self.assertIn("available through bundled Python package", check.detail)
+
+        # 3. Neither command nor API is available
+        with (
+            patch("md2doc.converter._command_exists", return_value=False),
+            patch("md2doc.converter._should_use_markitdown_api", return_value=False)
+        ):
+            check = _check_markitdown("markitdown")
+            self.assertFalse(check.available)
+            self.assertIn("was not found", check.detail)
+
+
 if __name__ == "__main__":
     unittest.main()
-
