@@ -267,8 +267,7 @@ def missing_dependency_message(checks: Iterable[DependencyCheck]) -> str:
         lines.append("Install Pandoc and then run: npm install -g mermaid-filter")
     if "Mermaid browser" in names:
         lines.append(
-            "Install Microsoft Edge/Google Chrome, or install Playwright Chromium: "
-            "python -m playwright install chromium"
+            "Install the managed Chromium runtime for Mermaid rendering: python -m playwright install chromium"
         )
     if "MarkItDown" in names:
         lines.append("Install MarkItDown: pip install 'markitdown[docx,pptx,xlsx]'")
@@ -1503,6 +1502,7 @@ def _mermaid_environment(settings: ConvertSettings, project_root: Path | None = 
         browser_path = _known_mermaid_browser_path()
         if browser_path:
             env["PUPPETEER_EXECUTABLE_PATH"] = str(browser_path)
+
     return env
 
 
@@ -1510,7 +1510,11 @@ def _known_mermaid_browser_path() -> Path | None:
     env_browser = _active_env_path("PUPPETEER_EXECUTABLE_PATH")
     if env_browser is not None:
         return env_browser
-    return _known_html_pdf_browser_path() or _known_puppeteer_browser_path()
+    return _known_mermaid_managed_browser_path() or _known_system_chromium_browser_path()
+
+
+def _known_mermaid_managed_browser_path() -> Path | None:
+    return _known_puppeteer_browser_path() or _known_playwright_chromium_path()
 
 
 def _active_env_path(name: str) -> Path | None:
@@ -1526,29 +1530,50 @@ def _active_env_path(name: str) -> Path | None:
 
 
 def _check_mermaid_browser_runtime() -> DependencyCheck:
-    browser_path = _known_mermaid_browser_path()
-    if browser_path:
-        return DependencyCheck(
-            name="Mermaid browser",
-            command="chromium",
-            available=True,
-            detail=f"found browser at {browser_path}",
-        )
-
-    env_browser = os.environ.get("PUPPETEER_EXECUTABLE_PATH", "").strip()
+    env_browser = _active_env_path("PUPPETEER_EXECUTABLE_PATH")
     if env_browser:
         return DependencyCheck(
             name="Mermaid browser",
             command="chromium",
+            available=True,
+            detail=f"found configured browser at {env_browser}",
+        )
+
+    env_value = os.environ.get("PUPPETEER_EXECUTABLE_PATH", "").strip()
+    if env_value:
+        return DependencyCheck(
+            name="Mermaid browser",
+            command="chromium",
             available=False,
-            detail=f"PUPPETEER_EXECUTABLE_PATH points to a missing browser: {env_browser}",
+            detail=f"PUPPETEER_EXECUTABLE_PATH points to a missing browser: {env_value}",
+        )
+
+    managed_browser = _known_mermaid_managed_browser_path()
+    if managed_browser:
+        return DependencyCheck(
+            name="Mermaid browser",
+            command="chromium",
+            available=True,
+            detail=f"found managed Chromium at {managed_browser}",
+        )
+
+    system_browser = _known_system_chromium_browser_path()
+    if system_browser:
+        return DependencyCheck(
+            name="Mermaid browser",
+            command="chromium",
+            available=False,
+            detail=(
+                f"found system browser at {system_browser}, but managed Chromium is not installed. "
+                "Run dependency setup to install Playwright Chromium."
+            ),
         )
 
     return DependencyCheck(
         name="Mermaid browser",
         command="chromium",
         available=False,
-        detail="No Edge, Chrome, or Chromium browser was found",
+        detail="No managed Chromium browser was found",
     )
 
 

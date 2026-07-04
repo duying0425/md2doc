@@ -47,7 +47,7 @@ DOCX image paragraphs are centered automatically after conversion.
 
 Install the external conversion tools depending on your project type:
 
-- **Markdown to documents**: Install Pandoc and `mermaid-filter`. Mermaid diagram rendering also needs Microsoft Edge/Google Chrome or Playwright Chromium:
+- **Markdown to documents**: Install Pandoc and `mermaid-filter`. Mermaid diagram rendering also needs the managed Playwright Chromium runtime:
   ```powershell
   winget install JohnMacFarlane.Pandoc
   npm install -g mermaid-filter

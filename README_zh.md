@@ -49,7 +49,7 @@ docs/guide.md   -> docs/guide.docx
 
 根据您使用的项目类型安装对应的外部转换工具：
 
-- **Markdown 转文档**：安装 Pandoc 和 `mermaid-filter`。Mermaid 图表渲染还需要 Microsoft Edge/Google Chrome 或 Playwright Chromium：
+- **Markdown 转文档**：安装 Pandoc 和 `mermaid-filter`。Mermaid 图表渲染还需要受控的 Playwright Chromium 运行时：
   ```powershell
   winget install JohnMacFarlane.Pandoc
   npm install -g mermaid-filter

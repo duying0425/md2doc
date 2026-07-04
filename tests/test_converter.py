@@ -19,6 +19,7 @@ from md2doc.converter import (
     ConversionResult,
     DependencyCheck,
     _center_docx_images,
+    _check_mermaid_browser_runtime,
     _ensure_figure_caption_lua,
     _ensure_generated_reference_docx,
     _markitdown_command,
@@ -414,8 +415,8 @@ class ConverterTests(unittest.TestCase):
 
     def test_mermaid_environment_sets_puppeteer_executable_path(self) -> None:
         with (
-            patch("md2doc.converter._known_html_pdf_browser_path") as mock_browser,
-            patch("md2doc.converter._known_puppeteer_browser_path", return_value=None),
+            patch("md2doc.converter._known_mermaid_managed_browser_path") as mock_browser,
+            patch("md2doc.converter._known_system_chromium_browser_path", return_value=Path("/mocked/path/to/edge")),
         ):
             mock_browser.return_value = Path("/mocked/path/to/chrome")
             with patch.dict(os.environ, {}, clear=True):
@@ -433,7 +434,29 @@ class ConverterTests(unittest.TestCase):
             mock_browser.return_value = None
             with patch.dict(os.environ, {}, clear=True):
                 env = _mermaid_environment(ConvertSettings())
-                self.assertNotIn("PUPPETEER_EXECUTABLE_PATH", env)
+                self.assertEqual(env.get("PUPPETEER_EXECUTABLE_PATH"), str(Path("/mocked/path/to/edge")))
+
+    def test_check_mermaid_browser_requires_managed_chromium_before_system_browser(self) -> None:
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("md2doc.converter._known_mermaid_managed_browser_path", return_value=None),
+            patch("md2doc.converter._known_system_chromium_browser_path", return_value=Path("/mocked/path/to/edge")),
+        ):
+            check = _check_mermaid_browser_runtime()
+
+        self.assertFalse(check.available)
+        self.assertIn("managed Chromium is not installed", check.detail)
+
+    def test_check_mermaid_browser_accepts_managed_chromium(self) -> None:
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("md2doc.converter._known_mermaid_managed_browser_path", return_value=Path("/mocked/path/to/chromium")),
+            patch("md2doc.converter._known_system_chromium_browser_path", return_value=Path("/mocked/path/to/edge")),
+        ):
+            check = _check_mermaid_browser_runtime()
+
+        self.assertTrue(check.available)
+        self.assertIn("managed Chromium", check.detail)
 
     def test_run_conversions_allows_missing_mermaid_browser_without_mermaid_block(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
