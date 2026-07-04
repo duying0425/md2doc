@@ -38,7 +38,7 @@ class DependencySetupTests(unittest.TestCase):
             patch("md2doc.dependencies.check_dependencies", side_effect=[missing, ready]),
             patch("md2doc.dependencies._tool_available", side_effect=lambda command: False),
             patch("md2doc.dependencies._resolve_winget", return_value="winget"),
-            patch("md2doc.dependencies._resolve_npm", return_value="npm"),
+            patch("md2doc.dependencies._resolve_npm", return_value=("npm", [])),
             patch("md2doc.dependencies._refresh_windows_path"),
         ):
             ensure_startup_dependencies(

@@ -56,11 +56,14 @@ def ensure_startup_dependencies(
             _refresh_windows_path()
 
         if not _tool_available("mermaid-filter"):
-            npm = _resolve_npm()
-            if not npm:
+            npm_result = _resolve_npm()
+            if not npm_result:
                 raise RuntimeError("npm was not found after installing Node.js.")
+            npm_exe, npm_args = npm_result
             _emit(on_progress, "Installing mermaid-filter with npm...")
-            _run_or_raise([npm, "install", "-g", "mermaid-filter"], run)
+            env = os.environ.copy()
+            env["PUPPETEER_SKIP_DOWNLOAD"] = "true"
+            _run_or_raise_with_env([npm_exe] + npm_args + ["install", "-g", "mermaid-filter"], run, env)
             _refresh_windows_path()
 
         if _missing_check(checks, "Mermaid browser"):
@@ -102,18 +105,11 @@ def _install_playwright_chromium(runner: InstallerRunner, on_progress: ProgressC
     except Exception as exc:
         raise RuntimeError(f"Playwright python package is not fully installed: {exc}")
 
-    args = [driver_executable, "install", "chromium"]
+    args = [driver_executable, driver_cli, "install", "chromium"]
     if runner == _run_command:
         full_env = os.environ.copy()
         full_env.update(env)
-        completed = subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            check=False,
-            env=full_env,
-            **hidden_subprocess_kwargs(),
-        )
+        completed = _run_command(args, env=full_env)
     else:
         completed = runner(args)
 
@@ -148,18 +144,46 @@ def _install_with_winget(
     )
 
 
-def _run_command(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
+def _run_command(args: Sequence[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    kwargs = hidden_subprocess_kwargs()
+    if env:
+        full_env = os.environ.copy()
+        full_env.update(env)
+        kwargs["env"] = full_env
+    if os.name == "nt":
+        if args and str(args[0]).lower().endswith(".cmd"):
+            cmd_exe = os.environ.get("ComSpec", "cmd.exe")
+            args = [cmd_exe, "/c"] + list(args)
+        kwargs["cwd"] = str(Path.home())
     return subprocess.run(
         args,
         capture_output=True,
         text=True,
         check=False,
-        **hidden_subprocess_kwargs(),
+        **kwargs,
     )
 
 
 def _run_or_raise(args: Sequence[str], runner: InstallerRunner) -> None:
     completed = runner(args)
+    if completed.returncode == 0:
+        return
+    output = (completed.stderr or completed.stdout or "").strip()
+    command = " ".join(args)
+    raise RuntimeError(output or f"Command failed: {command}")
+
+
+def _run_or_raise_with_env(
+    args: Sequence[str],
+    runner: InstallerRunner,
+    env: dict[str, str] | None = None,
+) -> None:
+    if runner is _run_command:
+        completed = _run_command(args, env=env)
+    else:
+        if env:
+            os.environ.update(env)
+        completed = runner(args)
     if completed.returncode == 0:
         return
     output = (completed.stderr or completed.stdout or "").strip()
@@ -186,13 +210,28 @@ def _resolve_winget() -> str | None:
     )
 
 
-def _resolve_npm() -> str | None:
-    return _resolve_command_path("npm") or _first_existing(
-        [
-            _env_path("ProgramFiles") / "nodejs" / "npm.cmd",
-            _env_path("ProgramFiles(x86)") / "nodejs" / "npm.cmd",
-        ]
-    )
+def _resolve_npm() -> tuple[str, list[str]] | None:
+    for candidate in (
+        _env_path("ProgramFiles") / "nodejs" / "npm.cmd",
+        _env_path("ProgramFiles(x86)") / "nodejs" / "npm.cmd",
+    ):
+        if candidate.exists():
+            return (str(candidate), [])
+    npm_cmd = _resolve_command_path("npm")
+    if npm_cmd:
+        return (npm_cmd, [])
+    node = _resolve_command_path("node")
+    if node:
+        node_dir = Path(node).parent
+        for candidate in (
+            node_dir / "node_modules" / "npm" / "bin" / "npm-cli.js",
+            _env_path("ProgramFiles") / "nodejs" / "node_modules" / "npm" / "bin" / "npm-cli.js",
+            _env_path("ProgramFiles(x86)") / "nodejs" / "node_modules" / "npm" / "bin" / "npm-cli.js",
+            Path(os.environ.get("APPDATA", "")) / "npm" / "node_modules" / "npm" / "bin" / "npm-cli.js",
+        ):
+            if candidate.exists():
+                return (node, [str(candidate)])
+    return None
 
 
 def _resolve_command_path(command: str) -> str | None:
