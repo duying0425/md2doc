@@ -82,6 +82,7 @@ class Md2DocApp(tk.Tk):
         super().__init__()
         self.ui_scale = _detect_ui_scale(self)
         self._configure_display()
+        self.configure(background="#f8f9fa")
         self.title("md2doc")
         self.geometry(f"{self._px(1120)}x{self._px(720)}")
         self.minsize(self._px(900), self._px(560))
@@ -128,7 +129,21 @@ class Md2DocApp(tk.Tk):
         sidebar.rowconfigure(1, weight=1)
 
         ttk.Label(sidebar, text="Projects").grid(row=0, column=0, columnspan=2, sticky="w")
-        self.project_list = tk.Listbox(sidebar, width=30, height=20, exportselection=False)
+        self.project_list = tk.Listbox(
+            sidebar,
+            width=30,
+            height=20,
+            exportselection=False,
+            background="#ffffff",
+            foreground="#212529",
+            highlightthickness=1,
+            highlightbackground="#dee2e6",
+            highlightcolor="#356cf9",
+            selectbackground="#e8f0fe",
+            selectforeground="#1a73e8",
+            borderwidth=0,
+            relief="flat",
+        )
         self.project_list.configure(font=self.default_font, activestyle="none")
         self.project_list.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=self._pad(8, 8))
         self.project_list.bind("<<ListboxSelect>>", self._on_project_selected)
@@ -213,7 +228,7 @@ class Md2DocApp(tk.Tk):
         self.scan_button.pack(side="left")
         self.convert_selected_button = ttk.Button(action_bar, text="Convert selected", command=self._convert_selected)
         self.convert_selected_button.pack(side="left", padx=self._pad(8, 0))
-        self.convert_all_button = ttk.Button(action_bar, text="Convert all", command=self._convert_all)
+        self.convert_all_button = ttk.Button(action_bar, text="Convert all", command=self._convert_all, style="Primary.TButton")
         self.convert_all_button.pack(side="left", padx=self._pad(8, 0))
         self.cancel_button = ttk.Button(action_bar, text="Stop", command=self._cancel_conversion, state="disabled")
         self.cancel_button.pack(side="left", padx=self._pad(8, 0))
@@ -254,12 +269,12 @@ class Md2DocApp(tk.Tk):
         self.tree.column("state", width=self._px(118), anchor="w", stretch=False)
         self.tree.column("file", width=self._px(430), anchor="w")
         self.tree.column("reason", width=self._px(260), anchor="w")
-        self.tree.tag_configure("skip", foreground="#2e7d32", background="#f0f7f4", font=self.state_font)
-        self.tree.tag_configure("convert", foreground="#6f4e00", background="#fff3c4", font=self.state_font)
-        self.tree.tag_configure("queued", foreground="#444", background="#eef1f5", font=self.state_font)
-        self.tree.tag_configure("running", foreground="#0b5cad", background="#e6f2ff", font=self.state_font)
-        self.tree.tag_configure("done", foreground="#127a3a", background="#e7f6ed", font=self.state_font)
-        self.tree.tag_configure("failed", foreground="#b00020", background="#fde8e8", font=self.state_font)
+        self.tree.tag_configure("skip", foreground="#198754", background="#e8f5e9", font=self.state_font)
+        self.tree.tag_configure("convert", foreground="#d97706", background="#fef3c7", font=self.state_font)
+        self.tree.tag_configure("queued", foreground="#6c757d", background="#f8f9fa", font=self.state_font)
+        self.tree.tag_configure("running", foreground="#0d6efd", background="#e7f1ff", font=self.state_font)
+        self.tree.tag_configure("done", foreground="#198754", background="#e8f5e9", font=self.state_font)
+        self.tree.tag_configure("failed", foreground="#dc3545", background="#ffebee", font=self.state_font)
         self.tree.grid(row=2, column=0, sticky="nsew")
 
         scrollbar = ttk.Scrollbar(main, orient="vertical", command=self.tree.yview)
@@ -267,7 +282,16 @@ class Md2DocApp(tk.Tk):
         self.tree.configure(yscrollcommand=scrollbar.set)
 
         # Context menu for file list
-        self.context_menu = tk.Menu(self, tearoff=0)
+        self.context_menu = tk.Menu(
+            self,
+            tearoff=0,
+            background="#ffffff",
+            foreground="#212529",
+            activebackground="#e8f0fe",
+            activeforeground="#1a73e8",
+            relief="flat",
+            borderwidth=1,
+        )
         self.context_menu.add_command(label="打开文件", command=self._menu_open_source_file)
         self.context_menu.add_command(label="打开文件所在目录", command=self._menu_open_source_dir)
         self.context_menu.add_command(label="打开转换完成的文件", command=self._menu_open_output_file)
@@ -276,8 +300,19 @@ class Md2DocApp(tk.Tk):
         self.tree.bind("<Button-3>", self._on_tree_right_click)
         self.tree.bind("<Double-1>", self._on_tree_double_click)
 
-        self.log = tk.Text(main, height=8, wrap="word")
-        self.log.configure(font=self.mono_font, padx=self._px(6), pady=self._px(4), spacing1=self._px(1))
+        self.log = tk.Text(
+            main,
+            height=8,
+            wrap="word",
+            background="#f8f9fa",
+            foreground="#495057",
+            highlightthickness=1,
+            highlightbackground="#dee2e6",
+            highlightcolor="#dee2e6",
+            borderwidth=0,
+            relief="flat",
+        )
+        self.log.configure(font=self.mono_font, padx=self._px(12), pady=self._px(8), spacing1=self._px(2))
         self.log.grid(row=5, column=0, columnspan=2, sticky="ew", pady=self._pad(8, 0))
         self.log.configure(state="disabled")
 
@@ -285,26 +320,249 @@ class Md2DocApp(tk.Tk):
         dpi = max(72.0, float(self.winfo_fpixels("1i")))
         self.tk.call("tk", "scaling", dpi / 72.0)
 
+        # Detect windowing system for high-quality default fonts
+        sys_type = self.tk.call("tk", "windowingsystem")
+        if sys_type == "win32" or os.name == "nt":
+            font_family = "Segoe UI"
+            mono_family = "Consolas"
+        elif sys_type == "aqua":
+            font_family = ".AppleSystemUIFont"
+            mono_family = "Menlo"
+        else:
+            font_family = "DejaVu Sans"
+            mono_family = "DejaVu Sans Mono"
+
         self.default_font = tkfont.nametofont("TkDefaultFont")
-        self.default_font.configure(family="Segoe UI", size=10)
+        self.default_font.configure(family=font_family, size=10)
         self.text_font = tkfont.nametofont("TkTextFont")
-        self.text_font.configure(family="Segoe UI", size=10)
-        self.heading_font = tkfont.Font(family="Segoe UI", size=12, weight="bold")
-        self.table_heading_font = tkfont.Font(family="Segoe UI", size=10, weight="bold")
-        self.state_font = tkfont.Font(family="Segoe UI", size=10, weight="bold")
-        self.mono_font = tkfont.Font(family="Cascadia Mono", size=9)
+        self.text_font.configure(family=font_family, size=10)
+        self.heading_font = tkfont.Font(family=font_family, size=13, weight="bold")
+        self.table_heading_font = tkfont.Font(family=font_family, size=10, weight="bold")
+        self.state_font = tkfont.Font(family=font_family, size=10, weight="bold")
+        self.mono_font = tkfont.Font(family=mono_family, size=9)
         self.option_add("*Font", self.default_font)
 
         style = ttk.Style(self)
-        if os.name == "nt" and "vista" in style.theme_names():
-            style.theme_use("vista")
-        style.configure(".", font=self.default_font)
-        style.configure("TButton", padding=self._pad(10, 5))
-        style.configure("TEntry", padding=self._pad(4, 3))
-        style.configure("TCombobox", padding=self._pad(4, 3))
-        style.configure("Treeview", font=self.default_font, rowheight=self._px(28))
-        style.configure("Treeview.Heading", font=self.table_heading_font, padding=self._pad(8, 5))
-        style.configure("Horizontal.TProgressbar", thickness=self._px(14))
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
+
+        # Color system
+        bg_main = "#f8f9fa"
+        bg_card = "#ffffff"
+        fg_main = "#212529"
+        fg_muted = "#6c757d"
+        primary_color = "#356cf9"
+        primary_hover = "#1d4ed8"
+        border_color = "#dee2e6"
+        border_focus = "#356cf9"
+        border_active = "#ced4da"
+        select_bg = "#e8f0fe"
+        select_fg = "#1a73e8"
+
+        # Apply global settings
+        style.configure(".", font=self.default_font, background=bg_main, foreground=fg_main, bordercolor=border_color)
+        
+        # Frame
+        style.configure("TFrame", background=bg_main)
+        
+        # Label
+        style.configure("TLabel", background=bg_main, foreground=fg_main)
+        
+        # Buttons
+        style.configure(
+            "TButton",
+            background=bg_card,
+            foreground=fg_main,
+            bordercolor=border_color,
+            lightcolor=bg_card,
+            darkcolor=bg_card,
+            focuscolor=primary_color,
+            padding=self._pad(12, 6),
+            relief="flat",
+            borderwidth=1,
+        )
+        style.map(
+            "TButton",
+            background=[("active", "#f1f3f5"), ("disabled", "#e9ecef")],
+            bordercolor=[("active", border_active), ("disabled", border_color)],
+            foreground=[("disabled", fg_muted)],
+        )
+
+        # Primary Button style
+        style.configure(
+            "Primary.TButton",
+            background=primary_color,
+            foreground="#ffffff",
+            bordercolor=primary_color,
+            lightcolor=primary_color,
+            darkcolor=primary_color,
+            focuscolor=primary_hover,
+            padding=self._pad(12, 6),
+            relief="flat",
+            borderwidth=1,
+        )
+        style.map(
+            "Primary.TButton",
+            background=[("active", primary_hover), ("disabled", "#a0c0ff")],
+            bordercolor=[("active", primary_hover), ("disabled", "#a0c0ff")],
+            foreground=[("active", "#ffffff"), ("disabled", "#ffffff")],
+        )
+
+        # Entry and Spinbox
+        style.configure(
+            "TEntry",
+            fieldbackground=bg_card,
+            background=bg_card,
+            bordercolor=border_color,
+            lightcolor=bg_card,
+            darkcolor=bg_card,
+            padding=self._pad(8, 5),
+            borderwidth=1,
+        )
+        style.map(
+            "TEntry",
+            bordercolor=[("focus", border_focus), ("active", border_active)],
+        )
+        
+        style.configure(
+            "TSpinbox",
+            fieldbackground=bg_card,
+            background=bg_card,
+            bordercolor=border_color,
+            lightcolor=bg_card,
+            darkcolor=bg_card,
+            padding=self._pad(8, 5),
+            borderwidth=1,
+        )
+        style.map(
+            "TSpinbox",
+            bordercolor=[("focus", border_focus), ("active", border_active)],
+        )
+
+        # Combobox
+        style.configure(
+            "TCombobox",
+            fieldbackground=bg_card,
+            background=bg_card,
+            bordercolor=border_color,
+            lightcolor=bg_card,
+            darkcolor=bg_card,
+            padding=self._pad(8, 5),
+            arrowsize=self._px(12),
+            borderwidth=1,
+        )
+        style.map(
+            "TCombobox",
+            bordercolor=[("focus", border_focus), ("active", border_active)],
+            fieldbackground=[("readonly", bg_card)],
+            background=[("readonly", bg_card)],
+        )
+
+        # Checkbutton / Radiobutton
+        style.configure(
+            "TCheckbutton",
+            background=bg_main,
+            foreground=fg_main,
+            indicatorbackground=bg_card,
+            indicatorcolor=bg_card,
+            padding=self._pad(4, 4),
+        )
+        style.map(
+            "TCheckbutton",
+            indicatorbackground=[("selected", primary_color), ("active", "#f1f3f5")],
+            background=[("active", bg_main)],
+        )
+
+        style.configure(
+            "TRadiobutton",
+            background=bg_main,
+            foreground=fg_main,
+            indicatorbackground=bg_card,
+            indicatorcolor=bg_card,
+            padding=self._pad(4, 4),
+        )
+        style.map(
+            "TRadiobutton",
+            indicatorbackground=[("selected", primary_color), ("active", "#f1f3f5")],
+            background=[("active", bg_main)],
+        )
+
+        # Notebook (Settings Dialog)
+        style.configure(
+            "TNotebook",
+            background=bg_main,
+            bordercolor=border_color,
+            borderwidth=1,
+        )
+        style.configure(
+            "TNotebook.Tab",
+            background="#e9ecef",
+            foreground=fg_muted,
+            bordercolor=border_color,
+            padding=self._pad(12, 6),
+            borderwidth=1,
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", bg_main), ("active", "#f1f3f5")],
+            foreground=[("selected", fg_main)],
+            bordercolor=[("selected", border_color)],
+        )
+
+        # Treeview styling
+        style.configure(
+            "Treeview",
+            background=bg_card,
+            fieldbackground=bg_card,
+            foreground=fg_main,
+            bordercolor=border_color,
+            rowheight=self._px(32),
+            borderwidth=1,
+        )
+        style.map(
+            "Treeview",
+            background=[("selected", select_bg)],
+            foreground=[("selected", select_fg)],
+        )
+        
+        style.configure(
+            "Treeview.Heading",
+            background="#f1f3f5",
+            foreground="#495057",
+            font=self.table_heading_font,
+            padding=self._pad(8, 6),
+            bordercolor=border_color,
+            borderwidth=1,
+        )
+        style.map(
+            "Treeview.Heading",
+            background=[("active", "#e9ecef")],
+        )
+
+        # Progressbar
+        style.configure(
+            "Horizontal.TProgressbar",
+            thickness=self._px(12),
+            background=primary_color,
+            troughcolor="#e9ecef",
+            bordercolor=border_color,
+            borderwidth=1,
+        )
+
+        # Scrollbar styling (flat style)
+        style.configure(
+            "Vertical.TScrollbar",
+            background="#ced4da",
+            troughcolor="#f1f3f5",
+            bordercolor=border_color,
+            arrowsize=self._px(10),
+            borderwidth=0,
+            gripcount=0,
+        )
+        style.map(
+            "Vertical.TScrollbar",
+            background=[("active", "#adb5bd"), ("disabled", "#e9ecef")],
+        )
 
     def _px(self, value: int | float) -> int:
         return max(1, int(round(value * self.ui_scale)))
@@ -366,6 +624,7 @@ class Md2DocApp(tk.Tk):
 
     def _choose_project_kind(self) -> str | None:
         dialog = tk.Toplevel(self)
+        dialog.configure(background="#f8f9fa")
         dialog.title("New project type")
         dialog.transient(self)
         dialog.grab_set()
@@ -411,7 +670,7 @@ class Md2DocApp(tk.Tk):
 
         buttons = ttk.Frame(frame)
         buttons.grid(row=5, column=0, sticky="e", pady=self._pad(16, 0))
-        ttk.Button(buttons, text="Continue", command=confirm).grid(row=0, column=0)
+        ttk.Button(buttons, text="Continue", command=confirm, style="Primary.TButton").grid(row=0, column=0)
 
         dialog.bind("<Return>", lambda _event: confirm())
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
@@ -1294,6 +1553,7 @@ class SettingsDialog(tk.Toplevel):
         self.minsize(parent._px(680), parent._px(540))
         self.transient(parent)
         self.grab_set()
+        self.configure(background="#f8f9fa")
 
         self.toc_var = tk.BooleanVar(value=project.toc)
         self.toc_depth_var = tk.StringVar(value=str(project.toc_depth))
@@ -1355,7 +1615,7 @@ class SettingsDialog(tk.Toplevel):
         buttons.columnconfigure(0, weight=1)
         ttk.Button(buttons, text="Restore defaults", command=self._restore_defaults).grid(row=0, column=0, sticky="w")
         ttk.Button(buttons, text="Cancel", command=self.destroy).grid(row=0, column=1, padx=self.parent._pad(0, 8))
-        ttk.Button(buttons, text="Save", command=self._save).grid(row=0, column=2)
+        ttk.Button(buttons, text="Save", command=self._save, style="Primary.TButton").grid(row=0, column=2)
 
     def _build_document_tab(self, frame: ttk.Frame) -> None:
         frame.columnconfigure(1, weight=1)
@@ -1685,6 +1945,8 @@ def _run_dependency_setup_window(parent: tk.Tk | tk.Toplevel | None = None, kind
         root = tk.Toplevel(parent)
         root.transient(parent)
         root.grab_set()
+
+    root.configure(background="#f8f9fa")
 
     root.title("md2doc setup")
     root.geometry("460x150")
