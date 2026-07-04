@@ -143,6 +143,82 @@ class CliTests(unittest.TestCase):
             mock_ensure.assert_called_once_with(kind="qmd2ppt", on_progress=unittest.mock.ANY)
             mock_check.assert_called_once()
 
+    def test_version_flag(self) -> None:
+        # argparse version flag exits with SystemExit (or raises standard output/SystemExit)
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            with self.assertRaises(SystemExit) as cm:
+                cli.main(["--version"])
+            self.assertEqual(cm.exception.code, 0)
+            self.assertIn("md2doc", stdout.getvalue())
+
+    def test_gui_subcommand_invokes_run_app(self) -> None:
+        with patch("md2doc.cli.run_app") as mock_run_app:
+            # 1. gui command
+            code1 = cli.main(["gui"])
+            self.assertEqual(code1, 0)
+            
+            # 2. empty/None command
+            code2 = cli.main([])
+            self.assertEqual(code2, 0)
+            
+            self.assertEqual(mock_run_app.call_count, 2)
+
+    def test_cli_usage_error_combining_single_file_with_additional_args(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "a.md"
+            source.write_text("# A", encoding="utf-8")
+            
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                code = cli.main(["convert", str(source), "extra_file.md"])
+            
+            self.assertEqual(code, 2)
+            self.assertIn("A single file target cannot be combined", stderr.getvalue())
+
+    def test_cli_usage_error_mismatched_file_suffix_for_project_kind(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            # create doc2md project config in the directory
+            from md2doc.project import create_project, KIND_DOC2MD
+            create_project(tmp, kind=KIND_DOC2MD)
+            
+            # target file is markdown (.md) but doc2md project expects Office suffixes (.docx/etc.)
+            source = Path(tmp) / "invalid.md"
+            source.write_text("# markdown", encoding="utf-8")
+            
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                code = cli.main(["convert", str(tmp), "invalid.md"])
+            
+            self.assertEqual(code, 2)
+            self.assertIn("Not a Office file", stderr.getvalue())
+
+    def test_cli_usage_error_file_outside_project_folder(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp1, tempfile.TemporaryDirectory() as tmp2:
+            from md2doc.project import create_project
+            create_project(tmp1)
+            
+            # File is in tmp2 (outside project root tmp1)
+            outside_file = Path(tmp2) / "outside.md"
+            outside_file.write_text("# Outside", encoding="utf-8")
+            
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                code = cli.main(["convert", tmp1, str(outside_file)])
+            
+            self.assertEqual(code, 2)
+            self.assertIn("File is outside the project folder", stderr.getvalue())
+
+    def test_scan_empty_directory_prints_no_files_found(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            # No files present in empty project
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = cli.main(["scan", tmp])
+            
+            self.assertEqual(code, 0)
+            self.assertIn("No Markdown files found", stdout.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()
+

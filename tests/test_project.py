@@ -243,6 +243,51 @@ class ProjectKindTests(unittest.TestCase):
                 saved_config = json.loads(config_path.read_text(encoding="utf-8"))
                 self.assertEqual(saved_config["reference_docx"], ".md2doc/reference.docx")
 
+    def test_create_project_kinds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root_dir = Path(tmp)
+            
+            # doc2md
+            proj_doc2md = create_project(root_dir / "doc2md_proj", kind="doc2md")
+            self.assertEqual(proj_doc2md.kind, "doc2md")
+            self.assertEqual(proj_doc2md.output_format, "md")
+            
+            # qmd2ppt
+            proj_qmd = create_project(root_dir / "qmd_proj", kind="qmd2ppt")
+            self.assertEqual(proj_qmd.kind, "qmd2ppt")
+            self.assertEqual(proj_qmd.output_format, "pptx")
+
+    def test_load_project_migrations_for_mermaid_defaults_and_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            meta_dir = root / ".md2doc"
+            meta_dir.mkdir(parents=True)
+            config_path = meta_dir / "project.json"
+            
+            # Save a config with mermaid_scale = 0.0 and mermaid_min_dpi = -1.0,
+            # which should trigger migration.
+            config_data = {
+                "name": "MigrateMe",
+                "root": str(root),
+                "kind": "md2doc",
+                "config_version": 1,
+                "mermaid_scale": 0.0,
+                "mermaid_min_dpi": -1.0
+            }
+            config_path.write_text(json.dumps(config_data), encoding="utf-8")
+            
+            # load it
+            from unittest.mock import patch, MagicMock
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0, stdout=b"dummy docx")
+                config = load_project(root)
+                
+                # Check that config version is upgraded, and defaults are migrated
+                self.assertEqual(config.config_version, CURRENT_PROJECT_CONFIG_VERSION)
+                self.assertEqual(config.mermaid_scale, 3.0)
+                self.assertEqual(config.mermaid_min_dpi, 450.0)
+                self.assertTrue(config.config_was_migrated)
+
 
 class ProjectRegistryTests(unittest.TestCase):
     def test_list_returns_sorted_projects_alphabetically(self) -> None:
@@ -270,6 +315,78 @@ class ProjectRegistryTests(unittest.TestCase):
             self.assertEqual(listed[0].name, "a Project")
             self.assertEqual(listed[1].name, "B Project")
             self.assertEqual(listed[2].name, "C Project")
+
+    def test_remove_project(self) -> None:
+        from md2doc.project import ProjectRegistry, ProjectConfig
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            registry_file = tmp_path / "projects.json"
+            registry = ProjectRegistry(registry_file)
+            
+            p_a = ProjectConfig(name="A", root=tmp_path / "a")
+            p_b = ProjectConfig(name="B", root=tmp_path / "b")
+            (tmp_path / "a").mkdir()
+            (tmp_path / "b").mkdir()
+            
+            registry._save([p_a, p_b])
+            self.assertEqual(len(registry.list()), 2)
+            
+            # Remove B
+            registry.remove(tmp_path / "b")
+            listed = registry.list()
+            self.assertEqual(len(listed), 1)
+            self.assertEqual(listed[0].name, "A")
+
+    def test_list_with_invalid_or_missing_json(self) -> None:
+        from md2doc.project import ProjectRegistry
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            registry_file = tmp_path / "projects.json"
+            registry = ProjectRegistry(registry_file)
+            
+            # Missing file returns empty list
+            self.assertEqual(registry.list(), [])
+            
+            # Malformed JSON file returns empty list
+            registry_file.write_text("invalid json", encoding="utf-8")
+            self.assertEqual(registry.list(), [])
+
+    def test_list_excludes_nonexistent_roots(self) -> None:
+        from md2doc.project import ProjectRegistry, ProjectConfig
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            registry_file = tmp_path / "projects.json"
+            registry = ProjectRegistry(registry_file)
+            
+            p_exists = ProjectConfig(name="Exists", root=tmp_path / "a")
+            p_missing = ProjectConfig(name="Missing", root=tmp_path / "missing")
+            (tmp_path / "a").mkdir()
+            
+            registry._save([p_exists, p_missing])
+            listed = registry.list()
+            self.assertEqual(len(listed), 1)
+            self.assertEqual(listed[0].name, "Exists")
+
+    def test_list_skips_malformed_entries(self) -> None:
+        from md2doc.project import ProjectRegistry
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            registry_file = tmp_path / "projects.json"
+            registry = ProjectRegistry(registry_file)
+            
+            # Entry lacks "root" which causes KeyError/ValueError inside from_dict
+            payload = {
+                "projects": [
+                    {"name": "Malformed (no root)"},
+                    {"name": "Valid", "root": str(tmp_path / "valid")}
+                ]
+            }
+            registry_file.write_text(json.dumps(payload), encoding="utf-8")
+            (tmp_path / "valid").mkdir()
+            
+            listed = registry.list()
+            self.assertEqual(len(listed), 1)
+            self.assertEqual(listed[0].name, "Valid")
 
 
 if __name__ == "__main__":
