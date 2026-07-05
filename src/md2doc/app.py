@@ -275,6 +275,7 @@ class Md2DocApp(tk.Tk):
         self.tree.tag_configure("running", foreground="#0d6efd", background="#e7f1ff", font=self.state_font)
         self.tree.tag_configure("done", foreground="#198754", background="#e8f5e9", font=self.state_font)
         self.tree.tag_configure("failed", foreground="#dc3545", background="#ffebee", font=self.state_font)
+        self.tree.tag_configure("cancelled", foreground="#6c757d", background="#e9ecef", font=self.state_font)
         self.tree.grid(row=2, column=0, sticky="nsew")
 
         scrollbar = ttk.Scrollbar(main, orient="vertical", command=self.tree.yview)
@@ -1456,10 +1457,45 @@ class Md2DocApp(tk.Tk):
         state.log_content += log_msg + "\n"
         state.conversion_active = False
 
+        is_current = bool(
+            self.current_project and self.current_project.root.resolve() == project_root.resolve()
+        )
+        cancelled_label = _state_label("cancelled")
+        cancelled_reason = "Cancelled by user"
+        cancelled_tag = "cancelled"
+        for source, (prev_state, prev_reason, prev_tag) in list(state.item_states.items()):
+            if prev_tag != "running":
+                continue
+            state.item_states[source] = (cancelled_label, cancelled_reason, cancelled_tag)
+            if is_current:
+                iid = self.iid_by_source.get(source)
+                if iid is None:
+                    iid = state.iid_by_source.get(source)
+                item = state.plan_by_id.get(iid) if iid else None
+                relative = item.relative_source if item else source
+                if iid is None or not self.tree.exists(iid):
+                    iid = self._next_iid()
+                    self.tree.insert(
+                        "",
+                        tk.END,
+                        iid=iid,
+                        values=(cancelled_label, relative, cancelled_reason),
+                        tags=(cancelled_tag,),
+                    )
+                    self.iid_by_source[source] = iid
+                    if item is not None:
+                        self.plan_by_id[iid] = item
+                else:
+                    self.tree.item(
+                        iid,
+                        values=(cancelled_label, relative, cancelled_reason),
+                        tags=(cancelled_tag,),
+                    )
+
         self.worker = None
         self._refresh_busy_state()
 
-        if self.current_project and self.current_project.root.resolve() == project_root.resolve():
+        if is_current:
             self.status_var.set("Conversion cancelled")
             self._append_log(log_msg)
         self._update_project_list_display()
@@ -2077,6 +2113,7 @@ def _state_label(action: str) -> str:
         "done": "[DONE]",
         "skipped": "[UP TO DATE]",
         "failed": "[FAILED]",
+        "cancelled": "[CANCELLED]",
     }.get(action, action)
 
 
