@@ -2069,16 +2069,41 @@ def _known_system_chromium_browser_path() -> Path | None:
 
 
 def _known_playwright_chromium_path() -> Path | None:
-    if importlib.util.find_spec("playwright") is None:
-        return None
-    try:
-        from playwright.sync_api import sync_playwright
+    if importlib.util.find_spec("playwright") is not None:
+        try:
+            from playwright.sync_api import sync_playwright
 
-        with sync_playwright() as playwright:
-            bundled = Path(playwright.chromium.executable_path)
-    except Exception:
-        return None
-    return bundled if bundled.exists() else None
+            with sync_playwright() as playwright:
+                bundled = Path(playwright.chromium.executable_path)
+            if bundled.exists():
+                return bundled
+        except Exception:
+            pass
+    return _known_ms_playwright_chromium_path()
+
+
+def _known_ms_playwright_chromium_path() -> Path | None:
+    roots: list[Path] = []
+    browsers_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
+    if browsers_path:
+        roots.append(Path(_strip_quotes(browsers_path)).expanduser())
+    local_app_data = _env_path("LOCALAPPDATA")
+    if local_app_data:
+        roots.append(local_app_data / "ms-playwright")
+    try:
+        roots.append(Path.home() / ".cache" / "ms-playwright")
+    except RuntimeError:
+        pass
+    filenames = ("chrome.exe", "chromium.exe") if os.name == "nt" else ("chrome", "chromium")
+    for root in _dedupe_paths(roots):
+        if not root.exists():
+            continue
+        for chromium_dir in sorted(root.glob("chromium-*"), reverse=True):
+            for filename in filenames:
+                for path in _find_named_files(chromium_dir, filename, limit=5):
+                    if path.exists():
+                        return path
+    return None
 
 
 def _known_puppeteer_browser_path() -> Path | None:
