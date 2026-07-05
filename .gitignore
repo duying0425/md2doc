@@ -8,4 +8,5 @@ dist/
 output/
 .md2doc/manifest.json
 bin/
+src/md2doc/build_info.py
 

@@ -27,32 +27,19 @@ Write-Host "Bumping version to $Version in files..."
 & $Python -c "import re; p = r'$InitPath'; c = open(p, 'r', encoding='utf-8').read(); c = re.sub(r'__version__\s*=\s*[\x22\x27][^\x22\x27]+[\x22\x27]', f'__version__ = \x22$Version\x22', c); open(p, 'w', encoding='utf-8').write(c)"
 & $Python -c "import re; p = r'$PyprojectPath'; c = open(p, 'r', encoding='utf-8').read(); c = re.sub(r'version\s*=\s*[\x22\x27][^\x22\x27]+[\x22\x27]', f'version = \x22$Version\x22', c); open(p, 'w', encoding='utf-8').write(c)"
 
-# 4. Trigger build process (which writes build_info.py and compiles the executable)
-Write-Host "Building executable..."
-powershell -File (Join-Path $PSScriptRoot "build_exe.ps1") -Python $Python
-if ($LASTEXITCODE -ne 0) {
-    throw "Build failed."
-}
-
-# 5. Git Commit version changes and build_info.py
+# 4. Git Commit version changes
 Write-Host "Committing changes to Git..."
-$BuildInfoPath = Join-Path $Root "src\md2doc\build_info.py"
-git add $InitPath $PyprojectPath $BuildInfoPath
-git commit -m "bump: version $Version and build time"
+git add $InitPath $PyprojectPath
+git commit -m "bump: version $Version"
 
-# 6. Tag the commit
+# 5. Tag the commit
 Write-Host "Tagging release as v$Version..."
 git tag "v$Version"
 
-# 7. Push branch and tag
+# 6. Push branch and tag
 Write-Host "Pushing to remote..."
 git push origin main
 git push origin "v$Version"
 
-# 8. Create GitHub Release
-Write-Host "Creating GitHub Release and uploading build artifact..."
-$ExePath = Join-Path $Root "bin\md2doc.exe"
-gh release create "v$Version" $ExePath --title "v$Version" --notes "Release v$Version"
+Write-Host "Version v$Version pushed successfully! GitHub Actions will now automatically build the executable and publish the Release." -ForegroundColor Green
 
-
-Write-Host "Release v$Version published successfully!" -ForegroundColor Green
