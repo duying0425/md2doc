@@ -173,3 +173,30 @@ md2doc convert C:\docs --pandoc "C:\Tools\Pandoc\pandoc.exe" --pandoc-arg=--embe
 - `0`：命令成功执行。
 - `1`：至少有一个转换失败，或者 `deps` 检测到缺失外部工具。
 - `2`：用法错误、转换配置无效或缺少所需的外部工具。
+
+## 开发与发布
+
+本项目的构建与发布流程已经封装在 `scripts/` 目录下：
+
+### 1. 本地打包编译
+
+使用 PyInstaller 将项目打包为单文件绿色版可执行程序（输出至 `bin/md2doc.exe`）：
+
+```powershell
+powershell -File scripts/build_exe.ps1 -Python .venv\Scripts\python.exe
+```
+
+### 2. 版本升级与 Git 发布
+
+使用 `scripts/release.ps1` 脚本可以自动修改版本号、提交修改、打 Tag 并推送至 GitHub 仓库：
+
+```powershell
+# 方式 A：自动递增小版本号（例如从 0.4.1 自动递增到 0.4.2）
+powershell -File scripts/release.ps1
+
+# 方式 B：手动指定具体的目标版本号
+powershell -File scripts/release.ps1 -Version 0.5.0
+```
+
+> [!NOTE]
+> 推送版本 Tag 到 GitHub 仓库后，GitHub Actions 工作流会自动编译 Windows 版本的 Standalone 可执行文件并发布到 Release 中。

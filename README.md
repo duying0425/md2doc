@@ -176,3 +176,30 @@ md2doc convert C:\docs --pandoc "C:\Tools\Pandoc\pandoc.exe" --pandoc-arg=--embe
 - `0`: command completed successfully.
 - `1`: at least one conversion failed, or `deps` found a missing tool.
 - `2`: usage error, invalid conversion settings, or missing required external tools.
+
+## Development & Release
+
+The build and release automation scripts are located in the `scripts/` folder:
+
+### 1. Build Standalone Executable Locally
+
+Package the application as a standalone executable (saved to `bin/md2doc.exe`) using PyInstaller:
+
+```powershell
+powershell -File scripts/build_exe.ps1 -Python .venv\Scripts\python.exe
+```
+
+### 2. Version Bump and Git Release
+
+Use `scripts/release.ps1` to update file versions, commit, tag, and push to the remote repository:
+
+```powershell
+# Option A: Automatically increment the patch version (e.g., 0.4.1 -> 0.4.2)
+powershell -File scripts/release.ps1
+
+# Option B: Manually specify a target version
+powershell -File scripts/release.ps1 -Version 0.5.0
+```
+
+> [!NOTE]
+> Pushing a new version tag to GitHub triggers a GitHub Actions workflow that automatically compiles the executable and creates a GitHub Release.

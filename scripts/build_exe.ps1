@@ -1,3 +1,22 @@
+<#
+.SYNOPSIS
+    Builds the md2doc standalone executable locally using PyInstaller.
+
+.DESCRIPTION
+    This script generates `src/md2doc/build_info.py` with the current build time,
+    and then compiles the application into a standalone executable at `bin/md2doc.exe`.
+    By default, it builds as a windowed (GUI) application.
+
+.PARAMETER Python
+    Path to the Python interpreter to use. Defaults to "python".
+    For local builds using the virtual environment, pass `.venv\Scripts\python.exe`.
+
+.PARAMETER Console
+    If specified, builds the application with a console window enabled (useful for debugging).
+
+.EXAMPLE
+    powershell -File scripts/build_exe.ps1 -Python .venv\Scripts\python.exe
+#>
 param(
     [string]$Python = "python",
     [switch]$Console
