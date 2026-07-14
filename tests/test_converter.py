@@ -18,17 +18,34 @@ from md2doc.converter import (
     ConvertSettings,
     ConversionResult,
     DependencyCheck,
+    FileFingerprint,
+    PlanItem,
     _center_docx_images,
     _check_mermaid_browser_runtime,
+    _clean_yaml_scalar,
+    _decide_action,
+    _effective_reference_docx,
     _ensure_figure_caption_lua,
     _ensure_generated_reference_docx,
+    _figure_caption_lua_content,
+    _generated_reference_signature,
+    _is_same_or_child,
+    _looks_like_external_reference,
     _markitdown_command,
     _mermaid_environment,
+    _missing_quarto_reference_doc_message,
+    _needs_generated_reference_docx,
     _pandoc_command,
+    _pandoc_format_args,
+    _quarto_front_matter_lines,
+    _requires_recorded_settings_to_skip,
+    _resolve_project_path,
     _shorten_output_path,
     _shorten_windows_path,
     _patch_reference_docx,
     _resolve_command,
+    _validate_settings,
+    _yaml_comment_index,
     check_dependencies,
     file_fingerprint,
     plan_conversions,
@@ -1562,6 +1579,474 @@ class ConverterInternalHelperTests(unittest.TestCase):
             check = _check_markitdown("markitdown")
             self.assertFalse(check.available)
             self.assertIn("was not found", check.detail)
+
+
+class DecideActionTests(unittest.TestCase):
+    """Cover the _decide_action planner decision table and its reason strings."""
+
+    def _fingerprint(self) -> FileFingerprint:
+        return FileFingerprint(size=10, mtime_ns=100, sha256="abc")
+
+    def _output(self, root: Path, *, exists: bool = False, mtime_ns: int = 50) -> Path:
+        output = root / "out.docx"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        if exists:
+            output.write_text("x", encoding="utf-8")
+            os.utime(output, (100, mtime_ns / 1e9))
+        return output
+
+    def test_force_overrides_everything(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = self._output(Path(tmp), exists=True, mtime_ns=200)
+            action, reason = _decide_action(
+                settings=ConvertSettings(force=True),
+                record={"source_sha256": "abc", "settings_signature": "sig"},
+                fingerprint=self._fingerprint(),
+                output=output,
+                signature="sig",
+            )
+            self.assertEqual((action, reason), ("convert", "forced"))
+
+    def test_skip_disabled_converts_even_when_output_matches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = self._output(Path(tmp), exists=True, mtime_ns=200)
+            action, reason = _decide_action(
+                settings=ConvertSettings(skip_unchanged=False),
+                record={"source_sha256": "abc", "settings_signature": "sig"},
+                fingerprint=self._fingerprint(),
+                output=output,
+                signature="sig",
+            )
+            self.assertEqual((action, reason), ("convert", "skip disabled"))
+
+    def test_output_missing_converts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = self._output(Path(tmp), exists=False)
+            action, reason = _decide_action(
+                settings=ConvertSettings(),
+                record=None,
+                fingerprint=self._fingerprint(),
+                output=output,
+                signature="sig",
+            )
+            self.assertEqual((action, reason), ("convert", "output missing"))
+
+    def test_no_record_output_newer_skips(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = self._output(Path(tmp), exists=True, mtime_ns=200)
+            action, reason = _decide_action(
+                settings=ConvertSettings(),
+                record=None,
+                fingerprint=FileFingerprint(size=10, mtime_ns=100, sha256="abc"),
+                output=output,
+                signature="sig",
+            )
+            self.assertEqual((action, reason), ("skip", "output is newer than source"))
+
+    def test_no_record_source_newer_converts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = self._output(Path(tmp), exists=True, mtime_ns=50)
+            action, reason = _decide_action(
+                settings=ConvertSettings(),
+                record=None,
+                fingerprint=FileFingerprint(size=10, mtime_ns=100, sha256="abc"),
+                output=output,
+                signature="sig",
+            )
+            self.assertEqual((action, reason), ("convert", "no history and source is newer"))
+
+    def test_record_settings_change_converts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = self._output(Path(tmp), exists=True, mtime_ns=200)
+            action, reason = _decide_action(
+                settings=ConvertSettings(),
+                record={"source_sha256": "abc", "settings_signature": "old"},
+                fingerprint=self._fingerprint(),
+                output=output,
+                signature="new",
+            )
+            self.assertEqual((action, reason), ("convert", "conversion settings changed"))
+
+    def test_unchanged_skips(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = self._output(Path(tmp), exists=True, mtime_ns=200)
+            action, reason = _decide_action(
+                settings=ConvertSettings(),
+                record={"source_sha256": "abc", "settings_signature": "sig"},
+                fingerprint=self._fingerprint(),
+                output=output,
+                signature="sig",
+            )
+            self.assertEqual((action, reason), ("skip", "unchanged"))
+
+    def test_source_hash_change_converts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = self._output(Path(tmp), exists=True, mtime_ns=200)
+            action, reason = _decide_action(
+                settings=ConvertSettings(),
+                record={"source_sha256": "old", "settings_signature": "sig"},
+                fingerprint=self._fingerprint(),
+                output=output,
+                signature="sig",
+            )
+            self.assertEqual((action, reason), ("convert", "source changed"))
+
+    def test_requires_recorded_settings_to_skip_detects_styled_settings(self) -> None:
+        self.assertTrue(_requires_recorded_settings_to_skip(ConvertSettings(toc=True)))
+        self.assertTrue(_requires_recorded_settings_to_skip(ConvertSettings(reference_docx="r.docx")))
+        self.assertTrue(_requires_recorded_settings_to_skip(ConvertSettings(table_borders="bordered")))
+        self.assertTrue(_requires_recorded_settings_to_skip(ConvertSettings(mermaid_format="svg")))
+        self.assertFalse(_requires_recorded_settings_to_skip(ConvertSettings()))
+
+
+class ValidateSettingsTests(unittest.TestCase):
+    def test_validate_settings_passes_for_doc2md_without_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            _validate_settings(Path(tmp), ConvertSettings(kind=KIND_DOC2MD))
+
+    def test_validate_settings_rejects_bad_table_borders(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(RuntimeError, "Table borders"):
+                _validate_settings(Path(tmp), ConvertSettings(table_borders="weird"))
+
+    def test_validate_settings_rejects_bad_mermaid_format(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(RuntimeError, "Mermaid format"):
+                _validate_settings(Path(tmp), ConvertSettings(mermaid_format="gif"))
+
+    def test_validate_settings_rejects_bad_figure_caption_position(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(RuntimeError, "Figure caption position"):
+                _validate_settings(Path(tmp), ConvertSettings(figure_caption_position="side"))
+
+    def test_validate_settings_rejects_missing_reference_docx(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(RuntimeError, "Reference DOCX not found"):
+                _validate_settings(Path(tmp), ConvertSettings(reference_docx="missing.docx"))
+
+    def test_validate_settings_regenerates_default_reference_docx(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            # The default .md2doc/reference.docx template is regenerated on demand.
+            project_root = Path(tmp)
+            settings = ConvertSettings(reference_docx=".md2doc/reference.docx")
+
+            def _fake_generate(root: Path, cfg: ConvertSettings) -> None:
+                reference = root / ".md2doc" / "reference.docx"
+                reference.parent.mkdir(parents=True, exist_ok=True)
+                reference.write_bytes(b"PK\x03\x04")
+
+            with patch(
+                "md2doc.converter._generate_default_reference_docx_if_needed",
+                side_effect=_fake_generate,
+            ) as gen:
+                _validate_settings(project_root, settings)
+            gen.assert_called_once()
+            self.assertTrue((project_root / ".md2doc" / "reference.docx").exists())
+
+
+class EffectiveReferenceDocxTests(unittest.TestCase):
+    def test_returns_none_for_non_docx_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _effective_reference_docx(Path(tmp), ConvertSettings(output_format="pptx"))
+            self.assertIsNone(result)
+
+    def test_returns_none_when_no_reference_and_no_styling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _effective_reference_docx(Path(tmp), ConvertSettings(reference_docx=""))
+            self.assertIsNone(result)
+
+    def test_returns_explicit_reference_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ref = Path(tmp) / "ref.docx"
+            ref.write_text("x", encoding="utf-8")
+            result = _effective_reference_docx(Path(tmp), ConvertSettings(reference_docx=str(ref)))
+            self.assertEqual(result, ref.resolve())
+
+    def test_generates_reference_when_font_or_borders_configured(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("md2doc.converter._ensure_generated_reference_docx", return_value=Path(tmp) / "gen.docx") as gen:
+                result = _effective_reference_docx(
+                    Path(tmp),
+                    ConvertSettings(default_font="Aptos", table_borders="bordered"),
+                )
+            self.assertEqual(result, Path(tmp) / "gen.docx")
+            gen.assert_called_once()
+
+    def test_needs_generated_reference_docx_detects_styling(self) -> None:
+        self.assertTrue(_needs_generated_reference_docx(ConvertSettings(default_font="Aptos")))
+        self.assertTrue(_needs_generated_reference_docx(ConvertSettings(default_font_size=12)))
+        self.assertTrue(_needs_generated_reference_docx(ConvertSettings(table_borders="plain")))
+        self.assertFalse(_needs_generated_reference_docx(ConvertSettings()))
+
+    def test_generated_reference_signature_changes_with_styling(self) -> None:
+        sig_a = _generated_reference_signature(ConvertSettings(default_font="Aptos", default_font_size=11, table_borders="bordered"))
+        sig_b = _generated_reference_signature(ConvertSettings(default_font="Calibri", default_font_size=11, table_borders="bordered"))
+        sig_c = _generated_reference_signature(ConvertSettings(default_font="Aptos", default_font_size=11, table_borders="bordered"))
+        self.assertNotEqual(sig_a, sig_b)
+        self.assertEqual(sig_a, sig_c)
+
+
+class QuartoFrontMatterTests(unittest.TestCase):
+    def _write(self, path: Path, content: str) -> None:
+        path.write_text(content, encoding="utf-8")
+
+    def test_parses_yaml_front_matter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            qmd = Path(tmp) / "doc.qmd"
+            self._write(qmd, "---\ntitle: Hello\nreference-doc: template.pptx\n---\n\n# Slide\n")
+            lines = _quarto_front_matter_lines(qmd)
+            self.assertEqual(lines, ["title: Hello", "reference-doc: template.pptx"])
+
+    def test_returns_empty_when_no_front_matter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            qmd = Path(tmp) / "doc.qmd"
+            self._write(qmd, "# No front matter\n\nBody\n")
+            self.assertEqual(_quarto_front_matter_lines(qmd), [])
+
+    def test_returns_empty_for_unclosed_front_matter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            qmd = Path(tmp) / "doc.qmd"
+            self._write(qmd, "---\ntitle: Unclosed\n\n# Body\n")
+            self.assertEqual(_quarto_front_matter_lines(qmd), [])
+
+    def test_stops_at_three_dots_close(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            qmd = Path(tmp) / "doc.qmd"
+            self._write(qmd, "---\ntitle: Dots\n...\n\n# Body\n")
+            self.assertEqual(_quarto_front_matter_lines(qmd), ["title: Dots"])
+
+    def test_handles_utf8_bom(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            qmd = Path(tmp) / "doc.qmd"
+            qmd.write_bytes(b"\xef\xbb\xbf---\ntitle: Bom\n---\n\n# Body\n")
+            self.assertEqual(_quarto_front_matter_lines(qmd), ["title: Bom"])
+
+
+class YamlScalarTests(unittest.TestCase):
+    def test_strips_unquoted_value(self) -> None:
+        self.assertEqual(_clean_yaml_scalar("template.pptx"), "template.pptx")
+
+    def test_strips_whitespace_around_value(self) -> None:
+        self.assertEqual(_clean_yaml_scalar("  template.pptx  "), "template.pptx")
+
+    def test_strips_single_quotes(self) -> None:
+        self.assertEqual(_clean_yaml_scalar("'my template.pptx'"), "my template.pptx")
+
+    def test_strips_double_quotes(self) -> None:
+        self.assertEqual(_clean_yaml_scalar('"my template.pptx"'), "my template.pptx")
+
+    def test_handles_unclosed_quote(self) -> None:
+        self.assertEqual(_clean_yaml_scalar("'unclosed"), "unclosed")
+
+    def test_strips_trailing_comment(self) -> None:
+        self.assertEqual(_clean_yaml_scalar("template.pptx # inline comment"), "template.pptx")
+
+    def test_preserves_hash_inside_value(self) -> None:
+        self.assertEqual(_clean_yaml_scalar("a#b.pptx"), "a#b.pptx")
+
+    def test_returns_empty_for_empty_input(self) -> None:
+        self.assertEqual(_clean_yaml_scalar(""), "")
+        self.assertEqual(_clean_yaml_scalar("   "), "")
+
+
+class YamlCommentIndexTests(unittest.TestCase):
+    def test_returns_negative_one_when_no_comment(self) -> None:
+        self.assertEqual(_yaml_comment_index("template.pptx"), -1)
+
+    def test_finds_leading_hash(self) -> None:
+        self.assertEqual(_yaml_comment_index("# comment"), 0)
+
+    def test_finds_hash_after_whitespace(self) -> None:
+        self.assertEqual(_yaml_comment_index("value # comment"), 6)
+
+    def test_ignores_hash_inside_word(self) -> None:
+        self.assertEqual(_yaml_comment_index("a#b"), -1)
+
+
+class ExternalReferenceTests(unittest.TestCase):
+    def test_http_url_is_external(self) -> None:
+        self.assertTrue(_looks_like_external_reference("http://example.com/template.pptx"))
+
+    def test_https_url_is_external(self) -> None:
+        self.assertTrue(_looks_like_external_reference("https://example.com/template.pptx"))
+
+    def test_data_uri_is_external(self) -> None:
+        self.assertTrue(_looks_like_external_reference("data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,..."))
+
+    def test_local_path_is_not_external(self) -> None:
+        self.assertFalse(_looks_like_external_reference("template.pptx"))
+        self.assertFalse(_looks_like_external_reference("./templates/x.pptx"))
+        self.assertFalse(_looks_like_external_reference("C:\\templates\\x.pptx"))
+
+
+class MissingQuartoReferenceTests(unittest.TestCase):
+    def test_returns_empty_string_when_reference_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            qmd = Path(tmp) / "doc.qmd"
+            ref = Path(tmp) / "template.pptx"
+            ref.write_text("x", encoding="utf-8")
+            qmd.write_text(f"---\nreference-doc: template.pptx\n---\n\n# Slide\n", encoding="utf-8")
+            self.assertEqual(_missing_quarto_reference_doc_message(qmd), "")
+
+    def test_returns_empty_string_when_no_reference_doc(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            qmd = Path(tmp) / "doc.qmd"
+            qmd.write_text("---\ntitle: Hello\n---\n\n# Slide\n", encoding="utf-8")
+            self.assertEqual(_missing_quarto_reference_doc_message(qmd), "")
+
+    def test_reports_missing_reference_with_expected_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            qmd = Path(tmp) / "doc.qmd"
+            qmd.write_text("---\nreference-doc: missing.pptx\n---\n\n# Slide\n", encoding="utf-8")
+            message = _missing_quarto_reference_doc_message(qmd)
+            self.assertIn("Reference PPTX not found", message)
+            self.assertIn("missing.pptx", message)
+            self.assertIn(str((qmd.parent / "missing.pptx").resolve()), message)
+
+    def test_ignores_external_urls(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            qmd = Path(tmp) / "doc.qmd"
+            qmd.write_text("---\nreference-doc: https://example.com/x.pptx\n---\n\n# Slide\n", encoding="utf-8")
+            self.assertEqual(_missing_quarto_reference_doc_message(qmd), "")
+
+
+class ResolveProjectPathTests(unittest.TestCase):
+    def test_resolves_relative_path_against_project_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _resolve_project_path(Path(tmp), "templates/ref.docx")
+            self.assertEqual(result, (Path(tmp) / "templates" / "ref.docx").resolve())
+
+    def test_resolves_absolute_path_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            absolute = Path(tmp) / "ref.docx"
+            result = _resolve_project_path(Path(tmp) / "other", str(absolute))
+            self.assertEqual(result, absolute.resolve())
+
+    def test_expands_user_path(self) -> None:
+        result = _resolve_project_path(Path("/tmp"), "~/ref.docx")
+        self.assertTrue(str(result).endswith("ref.docx"))
+
+
+class IsSameOrChildTests(unittest.TestCase):
+    def test_child_path_returns_true(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp).resolve()
+            child = parent / "sub"
+            child.mkdir()
+            self.assertTrue(_is_same_or_child(child.resolve(), parent))
+
+    def test_same_path_returns_true(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp).resolve()
+            self.assertTrue(_is_same_or_child(parent, parent))
+
+    def test_unrelated_path_returns_false(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp1, tempfile.TemporaryDirectory() as tmp2:
+            self.assertFalse(_is_same_or_child(Path(tmp1).resolve(), Path(tmp2).resolve()))
+
+    def test_none_parent_returns_false(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertFalse(_is_same_or_child(Path(tmp).resolve(), None))
+
+
+class CenterDocxImagesTests(unittest.TestCase):
+    def _make_docx(self, path: Path, *, with_image: bool) -> None:
+        drawing = (
+            '<w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="100" cy="100"/></wp:inline></w:drawing></w:r></w:p>'
+            if with_image
+            else '<w:p><w:r><w:t>plain text</w:t></w:r></w:p>'
+        )
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as docx:
+            docx.writestr(
+                "word/document.xml",
+                f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                f'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                f'<w:body>{drawing}</w:body></w:document>',
+            )
+
+    def test_centers_image_paragraph(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            docx_path = Path(tmp) / "out.docx"
+            self._make_docx(docx_path, with_image=True)
+            _center_docx_images(docx_path)
+            with zipfile.ZipFile(docx_path) as z:
+                doc = z.read("word/document.xml").decode("utf-8")
+            self.assertIn('w:jc w:val="center"', doc)
+
+    def test_leaves_text_paragraph_untouched(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            docx_path = Path(tmp) / "out.docx"
+            self._make_docx(docx_path, with_image=False)
+            _center_docx_images(docx_path)
+            with zipfile.ZipFile(docx_path) as z:
+                doc = z.read("word/document.xml").decode("utf-8")
+            self.assertNotIn("w:jc", doc)
+
+    def test_no_document_xml_is_noop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            docx_path = Path(tmp) / "out.docx"
+            with zipfile.ZipFile(docx_path, "w", zipfile.ZIP_DEFLATED) as z:
+                z.writestr("foo.txt", "bar")
+            _center_docx_images(docx_path)  # should not raise
+
+
+class PandocFormatArgsTests(unittest.TestCase):
+    def _item(self, root: Path) -> PlanItem:
+        source = root / "a.md"
+        source.write_text("# A", encoding="utf-8")
+        return plan_conversions(root, [source], ConvertSettings(output_dir=root))[0]
+
+    def test_toc_and_toc_depth_emitted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _pandoc_format_args(Path(tmp), self._item(Path(tmp)), ConvertSettings(toc=True, toc_depth=4))
+            self.assertIn("--toc", args)
+            self.assertIn("--toc-depth=4", args)
+
+    def test_number_sections_emitted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _pandoc_format_args(Path(tmp), self._item(Path(tmp)), ConvertSettings(number_sections=True))
+            self.assertIn("--number-sections", args)
+
+    def test_title_page_emits_metadata_with_fallback_to_filename(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _pandoc_format_args(
+                Path(tmp),
+                self._item(Path(tmp)),
+                ConvertSettings(title_page=True, title="", subtitle="Sub", author="Author", date="2026-07-14"),
+            )
+            self.assertIn("title=a", args)
+            self.assertIn("subtitle=Sub", args)
+            self.assertIn("author=Author", args)
+            self.assertIn("date=2026-07-14", args)
+
+    def test_reference_docx_emitted_when_set(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ref = Path(tmp) / "ref.docx"
+            ref.write_text("x", encoding="utf-8")
+            args = _pandoc_format_args(Path(tmp), self._item(Path(tmp)), ConvertSettings(reference_docx=str(ref)))
+            self.assertIn("--reference-doc", args)
+            self.assertIn(str(ref), args)
+
+    def test_no_args_for_plain_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _pandoc_format_args(Path(tmp), self._item(Path(tmp)), ConvertSettings())
+            self.assertEqual(args, [])
+
+
+class FigureCaptionLuaContentTests(unittest.TestCase):
+    def test_substitutes_prefix_and_position(self) -> None:
+        content = _figure_caption_lua_content(ConvertSettings(figure_prefix="Figure", figure_caption_position="above"))
+        self.assertIn('local configured_prefix = "Figure"', content)
+        self.assertIn('local configured_caption_position = "above"', content)
+
+    def test_falls_back_to_default_when_empty(self) -> None:
+        content = _figure_caption_lua_content(ConvertSettings(figure_prefix="", figure_caption_position=""))
+        self.assertIn('local configured_prefix = "Figure"', content)
+        self.assertIn('local configured_caption_position = "below"', content)
+
+    def test_escapes_quotes_in_prefix(self) -> None:
+        content = _figure_caption_lua_content(ConvertSettings(figure_prefix='hello "world"'))
+        self.assertIn('local configured_prefix = "hello \\"world\\""', content)
 
 
 if __name__ == "__main__":

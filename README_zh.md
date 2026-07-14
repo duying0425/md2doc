@@ -174,6 +174,51 @@ md2doc convert C:\docs --pandoc "C:\Tools\Pandoc\pandoc.exe" --pandoc-arg=--embe
 - `1`：至少有一个转换失败，或者 `deps` 检测到缺失外部工具。
 - `2`：用法错误、转换配置无效或缺少所需的外部工具。
 
+## 测试
+
+测试套件基于 Python 内置的 `unittest` 框架,位于 `tests/` 目录下。
+
+### 单元测试(`tests/test_converter.py`、`tests/test_project.py`、`tests/test_cli.py` 等)
+
+快速、隔离的测试,通过 mock 外部工具运行。覆盖范围包括:
+
+- 转换计划、文件扫描、跳过/强制转换决策逻辑。
+- 项目配置加载、迁移与序列化。
+- CLI 参数解析与命令分发。
+- 依赖检测与版本检查。
+- 内部辅助函数:YAML 标量清理、Quarto 前置元数据解析、reference DOCX 路径解析、Lua 过滤器生成、DOCX 图片居中等。
+
+### 端到端测试(`tests/test_e2e.py`)
+
+调用真实外部工具链(Pandoc、mermaid-filter、MarkItDown、Quarto、Playwright/Chromium)的实际转换测试。当对应工具未安装时,相关测试会自动跳过,因此在最小化 CI 环境中套件保持绿色,而在开发者机器上则执行真实转换。
+
+覆盖场景:
+
+- **md2doc**:基础转换、目录 + 章节编号 + 表格、水平分割线转分页、标题页元数据、二次运行跳过未变更文件、强制覆盖、默认字体生成 `generated-reference.docx`。
+- **doc2md**:DOCX 与 Markdown 往返转换。
+- **qmd2ppt**:QMD 转 PPTX。
+- **html2pdf**:HTML 转单页 PDF。
+
+### 运行测试
+
+```powershell
+# 运行全部测试(单元 + 端到端)
+$env:PYTHONPATH = "$PWD\src"
+python -m unittest discover -s tests
+
+# 仅运行单元测试(快速,无需外部工具)
+python -m unittest discover -s tests -p "test_*.py" -k "not E2E"
+
+# 运行单个模块
+python -m unittest tests.test_converter -v
+
+# 仅运行端到端测试(需要外部工具)
+python -m unittest tests.test_e2e -v
+```
+
+> [!NOTE]
+> 端到端测试会创建临时项目并转换真实文件。当所需工具不在 `PATH` 中时,对应测试会自动跳过。
+
 ## 开发与发布
 
 本项目的构建与发布流程已经封装在 `scripts/` 目录下：

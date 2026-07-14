@@ -177,6 +177,51 @@ md2doc convert C:\docs --pandoc "C:\Tools\Pandoc\pandoc.exe" --pandoc-arg=--embe
 - `1`: at least one conversion failed, or `deps` found a missing tool.
 - `2`: usage error, invalid conversion settings, or missing required external tools.
 
+## Testing
+
+The test suite uses Python's built-in `unittest` framework and lives under `tests/`.
+
+### Unit Tests (`tests/test_converter.py`, `tests/test_project.py`, `tests/test_cli.py`, ...)
+
+Fast, isolated tests that mock external tools. They cover:
+
+- Conversion planning, file scanning, and skip/force decision logic.
+- Project configuration loading, migration, and serialization.
+- CLI argument parsing and command dispatch.
+- Dependency detection and version checks.
+- Internal helpers: YAML scalar cleaning, Quarto front-matter parsing, reference DOCX resolution, Lua filter generation, DOCX image centering, and more.
+
+### End-to-End Tests (`tests/test_e2e.py`)
+
+Real conversion tests that invoke the actual external toolchain (Pandoc, mermaid-filter, MarkItDown, Quarto, Playwright/Chromium). Each test is auto-skipped when the corresponding tool is missing, so the suite stays green on minimal CI runners while exercising genuine conversions on developer machines.
+
+Covered scenarios:
+
+- **md2doc**: basic conversion, TOC + section numbering + tables, horizontal rule to page break, title page metadata, skip-unchanged on second run, force override, default font generating `generated-reference.docx`.
+- **doc2md**: DOCX to Markdown round-trip.
+- **qmd2ppt**: QMD to PPTX.
+- **html2pdf**: HTML to single-page PDF.
+
+### Running Tests
+
+```powershell
+# All tests (unit + e2e)
+$env:PYTHONPATH = "$PWD\src"
+python -m unittest discover -s tests
+
+# Unit tests only (fast, no external tools required)
+python -m unittest discover -s tests -p "test_*.py" -k "not E2E"
+
+# A single module
+python -m unittest tests.test_converter -v
+
+# End-to-end tests only (requires external tools)
+python -m unittest tests.test_e2e -v
+```
+
+> [!NOTE]
+> End-to-end tests create temporary projects and convert real files. They are skipped automatically when the required tool is not on `PATH`.
+
 ## Development & Release
 
 The build and release automation scripts are located in the `scripts/` folder:
