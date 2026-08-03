@@ -68,7 +68,7 @@ class ConversionCancelledError(Exception):
     pass
 
 
-PlanAction = Literal["convert", "skip"]
+PlanAction = Literal["convert", "skip", "delete"]
 
 
 @dataclass(frozen=True)
@@ -85,6 +85,7 @@ class ConvertSettings:
     output_format: str = "docx"
     output_dir: Path | None = None
     recursive: bool = True
+    sync_deletes: bool = False
     pandoc_cmd: str = "pandoc"
     mermaid_filter_cmd: str = "mermaid-filter"
     markitdown_cmd: str = "markitdown"
@@ -203,6 +204,10 @@ class BuildManifest:
             "converted_at": datetime.now(timezone.utc).isoformat(),
         }
 
+    def remove_record(self, relative_source: str) -> None:
+        if relative_source in self.records:
+            del self.records[relative_source]
+
 
 def settings_from_project(config: ProjectConfig, *, force: bool = False) -> ConvertSettings:
     return ConvertSettings(
@@ -210,6 +215,7 @@ def settings_from_project(config: ProjectConfig, *, force: bool = False) -> Conv
         output_format=config.output_format,
         output_dir=config.output_path,
         recursive=config.recursive,
+        sync_deletes=config.sync_deletes,
         extra_pandoc_args=tuple(config.extra_pandoc_args),
         hr_to_pagebreak=config.hr_to_pagebreak,
         force=force,
@@ -363,6 +369,7 @@ def plan_conversions(
     manifest: BuildManifest | None = None,
     *,
     use_cached_fingerprints: bool = False,
+    include_deletes: bool = False,
 ) -> list[PlanItem]:
     root = Path(project_root).expanduser().resolve()
     manifest = manifest or BuildManifest.load(root)
@@ -370,10 +377,12 @@ def plan_conversions(
     output_suffix = settings.output_suffix()
     signature = settings_signature(settings, root)
     planned: list[PlanItem] = []
+    scanned_relatives: set[str] = set()
 
     for source in sources:
         source = Path(source).expanduser().resolve()
         relative = source.relative_to(root).as_posix()
+        scanned_relatives.add(relative)
         record = manifest.records.get(relative)
         fingerprint = _plan_fingerprint(
             source,
@@ -399,6 +408,28 @@ def plan_conversions(
                 settings_signature=signature,
             )
         )
+
+    if settings.sync_deletes or include_deletes:
+        for rel_source, record in sorted(manifest.records.items()):
+            if rel_source not in scanned_relatives:
+                source_path = root / rel_source
+                if not source_path.exists():
+                    out_path = Path(record.get("output", ""))
+                    if not out_path.is_absolute():
+                        out_path = root / out_path
+                    if out_path.exists():
+                        planned.append(
+                            PlanItem(
+                                source=source_path,
+                                relative_source=rel_source,
+                                output=out_path,
+                                action="delete",
+                                reason="源文件已被删除",
+                                fingerprint=FileFingerprint(size=0, mtime_ns=0, sha256=""),
+                                settings_signature=signature,
+                            )
+                        )
+
     return planned
 
 
@@ -414,6 +445,7 @@ def run_conversions(
     root = Path(project_root).expanduser().resolve()
     manifest = BuildManifest.load(root)
     items = plan_conversions(root, sources, settings, manifest)
+    output_dir = (settings.output_dir or root).expanduser().resolve()
     needs_convert = [item for item in items if item.action == "convert"]
     if needs_convert:
         _validate_settings(root, settings)
@@ -428,6 +460,23 @@ def run_conversions(
     for item in items:
         if cancel_event is not None and cancel_event.is_set():
             raise ConversionCancelledError("Conversion cancelled by user")
+
+        if item.action == "delete":
+            if on_start:
+                on_start(item)
+            try:
+                if item.output.exists():
+                    item.output.unlink()
+                manifest.remove_record(item.relative_source)
+                manifest.save()
+                _cleanup_empty_dirs(item.output.parent, root=output_dir)
+                result = ConversionResult(item=item, status="converted", message="已同步删除孤儿文档")
+            except Exception as exc:
+                result = ConversionResult(item=item, status="failed", message=f"清理孤儿文档失败: {exc}")
+            results.append(result)
+            if on_event:
+                on_event(result)
+            continue
 
         if item.action == "skip":
             result = ConversionResult(item=item, status="skipped", message=item.reason)
@@ -451,6 +500,68 @@ def run_conversions(
         if result.status == "converted":
             manifest.record_success(item)
             manifest.save()
+        if on_event:
+            on_event(result)
+    return results
+
+
+def _cleanup_empty_dirs(dir_path: Path, *, root: Path) -> None:
+    current = dir_path.resolve()
+    root_resolved = root.resolve()
+    while current != root_resolved and _is_same_or_child(current, root_resolved):
+        try:
+            if current.is_dir() and not any(current.iterdir()):
+                current.rmdir()
+                current = current.parent
+            else:
+                break
+        except Exception:
+            break
+
+
+def clean_orphans(
+    project_root: Path | str,
+    settings: ConvertSettings | None = None,
+    manifest: BuildManifest | None = None,
+    *,
+    dry_run: bool = False,
+    on_event: Callable[[ConversionResult], None] | None = None,
+) -> list[ConversionResult]:
+    root = Path(project_root).expanduser().resolve()
+    settings = settings or ConvertSettings()
+    manifest = manifest or BuildManifest.load(root)
+    sources = scan_source_files(
+        root,
+        kind=settings.kind,
+        recursive=settings.recursive,
+        output_dir=settings.output_dir,
+    )
+    items = plan_conversions(root, sources, settings, manifest, include_deletes=True)
+    delete_items = [item for item in items if item.action == "delete"]
+
+    if dry_run:
+        results = [
+            ConversionResult(item=item, status="skipped", message=f"预览待清理孤儿文档: {item.output.name}")
+            for item in delete_items
+        ]
+        if on_event:
+            for res in results:
+                on_event(res)
+        return results
+
+    output_dir = (settings.output_dir or root).expanduser().resolve()
+    results: list[ConversionResult] = []
+    for item in delete_items:
+        try:
+            if item.output.exists():
+                item.output.unlink()
+            manifest.remove_record(item.relative_source)
+            manifest.save()
+            _cleanup_empty_dirs(item.output.parent, root=output_dir)
+            result = ConversionResult(item=item, status="converted", message="已同步删除孤儿文档")
+        except Exception as exc:
+            result = ConversionResult(item=item, status="failed", message=f"清理孤儿文档失败: {exc}")
+        results.append(result)
         if on_event:
             on_event(result)
     return results

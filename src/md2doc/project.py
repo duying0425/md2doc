@@ -74,6 +74,7 @@ class ProjectConfig:
     figure_prefix: str = "图表"
     figure_caption_position: str = "below"
     hr_to_pagebreak: bool = True
+    sync_deletes: bool = False
     html_viewport_width: int = 1280
     html_viewport_height: int = 720
     html_device_scale_factor: float = 1.0
@@ -107,6 +108,7 @@ class ProjectConfig:
             "output_dir": self.output_dir,
             "output_format": self.output_format,
             "recursive": self.recursive,
+            "sync_deletes": self.sync_deletes,
             "extra_pandoc_args": list(self.extra_pandoc_args),
             "toc": self.toc,
             "toc_depth": self.toc_depth,
@@ -193,6 +195,7 @@ class ProjectConfig:
             output_dir=str(data.get("output_dir") or "."),
             output_format=output_format,
             recursive=bool(data.get("recursive", True)),
+            sync_deletes=bool(data.get("sync_deletes", False)),
             extra_pandoc_args=list(data.get("extra_pandoc_args") or []),
             toc=bool(data.get("toc", False)),
             toc_depth=int(data.get("toc_depth") or 3),

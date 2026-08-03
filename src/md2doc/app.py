@@ -827,7 +827,7 @@ class Md2DocApp(tk.Tk):
             use_cached_fingerprints=True,
         )
         self._prepare_conversion_progress(planned)
-        queued = [item for item in planned if item.action == "convert"]
+        queued = [item for item in planned if item.action in ("convert", "delete")]
         skipped = [item for item in planned if item.action == "skip"]
         self._record_already_skipped(skipped)
         if not queued:
@@ -1384,6 +1384,7 @@ class SettingsDialog(tk.Toplevel):
         self.mermaid_scale_var = tk.StringVar(value=str(project.mermaid_scale or ""))
         self.mermaid_min_dpi_var = tk.StringVar(value=str(project.mermaid_min_dpi))
         self.hr_to_pagebreak_var = tk.BooleanVar(value=project.hr_to_pagebreak)
+        self.sync_deletes_var = tk.BooleanVar(value=project.sync_deletes)
         self.html_viewport_width_var = tk.StringVar(value=str(project.html_viewport_width))
         self.html_viewport_height_var = tk.StringVar(value=str(project.html_viewport_height))
         self.html_device_scale_factor_var = tk.StringVar(value=str(project.html_device_scale_factor))
@@ -1459,6 +1460,11 @@ class SettingsDialog(tk.Toplevel):
                 sticky="ew",
                 pady=self.parent._pad(4, 0),
             )
+        ttk.Checkbutton(
+            frame,
+            text="Sync deletes (automatically remove outputs when source files are deleted)",
+            variable=self.sync_deletes_var,
+        ).grid(row=7, column=0, columnspan=3, sticky="w", pady=self.parent._pad(12, 0))
 
     def _build_word_tab(self, frame: ttk.Frame) -> None:
         frame.columnconfigure(1, weight=1)
@@ -1623,6 +1629,7 @@ class SettingsDialog(tk.Toplevel):
             self.default_font_var.set(defaults.default_font)
             self.table_borders_var.set(defaults.table_borders)
             self.hr_to_pagebreak_var.set(defaults.hr_to_pagebreak)
+            self.sync_deletes_var.set(defaults.sync_deletes)
             self.figure_numbering_var.set(defaults.figure_numbering)
             self.figure_prefix_var.set(defaults.figure_prefix)
             self.figure_caption_position_var.set(defaults.figure_caption_position)
@@ -1702,6 +1709,7 @@ class SettingsDialog(tk.Toplevel):
         self.project.mermaid_scale = mermaid_scale
         self.project.mermaid_min_dpi = mermaid_min_dpi
         self.project.hr_to_pagebreak = self.hr_to_pagebreak_var.get()
+        self.project.sync_deletes = self.sync_deletes_var.get()
         self.project.extra_pandoc_args = extra_args
         self.project.save()
         ProjectRegistry().add(self.project)

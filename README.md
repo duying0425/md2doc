@@ -118,6 +118,7 @@ When the package is installed, replace `python -m md2doc` with `md2doc`.
 - `md2doc scan <folder>`: list source files in a project.
 - `md2doc plan <folder-or-file> [files...]`: print the conversion plan.
 - `md2doc convert <folder-or-file> [files...]`: run conversions.
+- `md2doc clean <folder>`: clean orphaned document outputs whose source files have been deleted (supports `--dry-run`).
 - `md2doc deps`: check installed conversion tools. Use `--kind html2pdf` to check Playwright and browser availability. Accepts an optional `--install` flag (e.g. `md2doc deps --install --kind html2pdf`) to automatically download and configure missing dependencies.
 
 `convert` and `plan` accept either a project folder or one source file. When a
@@ -136,6 +137,7 @@ Common `plan` and `convert` options:
 - `--format docx`: override the Markdown project output format.
 - `--output-dir <folder>`: write outputs under a separate folder.
 - `--recursive` / `--no-recursive`: control project scanning.
+- `--sync-deletes` / `--no-sync-deletes`: automatically delete output files when their corresponding source files are deleted.
 - `--force`: convert even when outputs look up to date.
 - `--no-skip`: disable smart skipping for unchanged files.
 - `--dry-run`: print the plan from `convert` without running Pandoc.

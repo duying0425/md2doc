@@ -117,6 +117,7 @@ python -m md2doc deps
 - `md2doc scan <folder>`：列出项目中的源文件。
 - `md2doc plan <folder-or-file> [files...]`：打印转换计划。
 - `md2doc convert <folder-or-file> [files...]`：执行文档转换。
+- `md2doc clean <folder>`：清理源文件已被删除的孤儿文档输出及历史 Manifest 记录（支持 `--dry-run` 预览）。
 - `md2doc deps`：检查转换工具的安装状态。若使用 `--kind html2pdf` 参数，可检查 Playwright 及浏览器可用性。支持可选的 `--install` 参数（如 `md2doc deps --install --kind html2pdf`）自动下载和安装缺失的外部工具。
 
 `convert` 和 `plan` 既可以接收项目文件夹，也可以接收单个 Markdown 文件。当指定文件夹时，可选的文件参数会解析为相对于项目文件夹的相对路径：
@@ -133,6 +134,7 @@ md2doc convert C:\docs\README.md --format docx
 - `--format docx`：覆盖 Markdown 项目的输出格式。
 - `--output-dir <folder>`：将输出文件写入单独的文件夹。
 - `--recursive` / `--no-recursive`：控制项目扫描是否递归。
+- `--sync-deletes` / `--no-sync-deletes`：控制在转换时是否自动同步删除源文件已被删除的输出文档。
 - `--force`：强制转换，即使输出文件看起来已是最新。
 - `--no-skip`：对未修改的文件禁用智能跳过。
 - `--dry-run`：从 `convert` 打印计划而不运行 Pandoc。

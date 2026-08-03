@@ -84,6 +84,10 @@ def main(argv: list[str] | None = None) -> int:
     convert_parser = subparsers.add_parser("convert", help="Convert Markdown files")
     _add_conversion_arguments(convert_parser, dry_run=True)
 
+    clean_parser = subparsers.add_parser("clean", help="Clean orphaned document files whose source files have been deleted")
+    clean_parser.add_argument("folder", help="Project folder to clean")
+    clean_parser.add_argument("--dry-run", action="store_true", help="Preview orphaned files without deleting them")
+
     deps_parser = subparsers.add_parser("deps", help="Check conversion tools")
     deps_parser.add_argument("--kind", choices=sorted(VALID_KINDS), default=KIND_MD2DOC)
     deps_parser.add_argument("--format", default="docx", choices=OUTPUT_FORMATS)
@@ -134,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
                 state = "ok" if check.available else "missing"
                 print(f"{check.name}: {state} - {check.detail}")
             return 0 if all(check.available for check in checks) else 1
+        if args.command == "clean":
+            return _clean(args)
         if args.command == "plan":
             args.dry_run = True
             return _convert(args)
@@ -174,6 +180,7 @@ def _add_conversion_arguments(parser: argparse.ArgumentParser, *, dry_run: bool)
     parser.add_argument("--format", default=None, choices=OUTPUT_FORMATS)
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--recursive", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--sync-deletes", action=argparse.BooleanOptionalAction, default=None, help="Automatically delete document outputs when source files are deleted.")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--no-skip", action="store_true")
     parser.add_argument("--toc", action=argparse.BooleanOptionalAction, default=None)
@@ -312,6 +319,7 @@ def _settings_from_args(config: ProjectConfig, args: argparse.Namespace) -> Conv
     overrides = {}
     for name in (
         "recursive",
+        "sync_deletes",
         "toc",
         "toc_depth",
         "title_page",
@@ -384,6 +392,20 @@ def _input_label(kind: str) -> str:
     if kind == KIND_HTML2PDF:
         return "HTML"
     return "Markdown"
+
+
+def _clean(args: argparse.Namespace) -> int:
+    folder = Path(args.folder).expanduser().resolve()
+    config = load_project(folder)
+    settings = settings_from_project(config)
+    from .converter import clean_orphans
+    results = clean_orphans(config.root, settings, dry_run=args.dry_run)
+    if not results:
+        print("No orphaned document files found.")
+        return 0
+    for res in results:
+        print(f"{res.status:9} {res.item.relative_source} -> {res.item.output} ({res.message})")
+    return 0
 
 
 if __name__ == "__main__":
