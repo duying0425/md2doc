@@ -147,7 +147,36 @@ class DeletionSyncBehaviorTests(unittest.TestCase):
             self.assertEqual(results[0].status, "converted")
             self.assertFalse(docx_file.exists())
 
+    def test_sync_deletes_untracked_output_dir_orphans(self) -> None:
+        """测试当源 Markdown 文件被移动/重命名（如从 old_folder/doc.md 到 new_folder/doc.md）导致旧输出路径留有孤儿 docx 时，clean_orphans 能够扫描并清理该孤儿文件。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output_dir = root / "output"
+            old_out_folder = output_dir / "old_folder"
+            new_out_folder = output_dir / "new_folder"
+            old_out_folder.mkdir(parents=True)
+            new_out_folder.mkdir(parents=True)
+
+            # 旧路径下残留的孤儿 docx
+            old_docx = old_out_folder / "doc.docx"
+            old_docx.write_text("old orphan content", encoding="utf-8")
+
+            # 新路径下的 markdown 源文件
+            new_src_folder = root / "new_folder"
+            new_src_folder.mkdir(parents=True)
+            new_md = new_src_folder / "doc.md"
+            new_md.write_text("# New Document", encoding="utf-8")
+
+            settings = ConvertSettings(output_dir=output_dir, sync_deletes=True)
+            results = clean_orphans(root, settings=settings)
+
+            # 应成功清理 old_docx
+            self.assertFalse(old_docx.exists())
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0].item.output.resolve(), old_docx.resolve())
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

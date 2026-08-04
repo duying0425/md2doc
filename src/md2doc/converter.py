@@ -143,6 +143,16 @@ class ConvertSettings:
         return MARKDOWN_SUFFIXES
 
 
+def _input_suffix(kind: str) -> str:
+    if kind == KIND_DOC2MD:
+        return ".docx"
+    if kind == KIND_QMD2PPT:
+        return ".qmd"
+    if kind == KIND_HTML2PDF:
+        return ".html"
+    return ".md"
+
+
 @dataclass(frozen=True)
 class FileFingerprint:
     size: int
@@ -468,6 +478,38 @@ def plan_conversions(
                                 settings_signature=signature,
                             )
                         )
+
+        # Scan output_dir for untracked orphan output files (e.g. from moved/renamed files or directories)
+        planned_outputs = {item.output.resolve() for item in planned}
+        in_suffix = _input_suffix(settings.kind)
+        if output_dir.exists() and output_dir.is_dir():
+            for current, dirnames, filenames in os.walk(output_dir):
+                current_path = Path(current)
+                dirnames[:] = [d for d in dirnames if d != PROJECT_DIR_NAME and d not in DEFAULT_EXCLUDED_DIRS]
+                for filename in filenames:
+                    if filename.lower() == "reference.docx":
+                        continue
+                    out_path = (current_path / filename).resolve()
+                    if out_path.suffix.lower() == output_suffix.lower() and out_path not in planned_outputs:
+                        try:
+                            rel_out = out_path.relative_to(output_dir).as_posix()
+                        except ValueError:
+                            continue
+                        rel_source = Path(rel_out).with_suffix(in_suffix).as_posix()
+                        source_path = root / rel_source
+                        if not source_path.exists():
+                            planned.append(
+                                PlanItem(
+                                    source=source_path,
+                                    relative_source=rel_source,
+                                    output=out_path,
+                                    action="delete",
+                                    reason="源文件已被移动或删除",
+                                    fingerprint=FileFingerprint(size=0, mtime_ns=0, sha256=""),
+                                    settings_signature=signature,
+                                )
+                            )
+                            planned_outputs.add(out_path)
 
     return planned
 
