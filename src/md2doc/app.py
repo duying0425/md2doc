@@ -272,6 +272,7 @@ class Md2DocApp(tk.Tk):
         self.tree.column("reason", width=self._px(260), anchor="w")
         self.tree.tag_configure("skip", foreground="#198754", background="#e8f5e9")
         self.tree.tag_configure("convert", foreground="#d97706", background="#fef3c7")
+        self.tree.tag_configure("delete", foreground="#dc3545", background="#ffebee")
         self.tree.tag_configure("queued", foreground="#6c757d", background="#f8f9fa")
         self.tree.tag_configure("running", foreground="#0d6efd", background="#e7f1ff")
         self.tree.tag_configure("done", foreground="#198754", background="#e8f5e9")
@@ -1092,7 +1093,7 @@ class Md2DocApp(tk.Tk):
     def _insert_or_update_plan_item(self, iid: str, item: PlanItem) -> None:
         self.plan_by_id[iid] = item
         self.iid_by_source[str(item.source)] = iid
-        tag = "convert" if item.action == "convert" else "skip"
+        tag = "convert" if item.action == "convert" else ("delete" if item.action == "delete" else "skip")
         values = (
             _state_label(item.action),
             item.relative_source,
@@ -1129,6 +1130,8 @@ class Md2DocApp(tk.Tk):
                 else:
                     tool = "Pandoc"
                 self._set_item_state(item, _state_label("queued"), f"Waiting for {tool}", "queued")
+            elif item.action == "delete":
+                self._set_item_state(item, _state_label("queued"), "Waiting to delete orphan", "queued")
 
     def _mark_item_running(self, project_root: Path, item: PlanItem) -> None:
         state = self._get_or_create_state(project_root)
@@ -1141,11 +1144,11 @@ class Md2DocApp(tk.Tk):
         else:
             tool = "Pandoc"
         state_label = _state_label("running")
-        reason = f"Running {tool}"
+        reason = "Deleting orphan output" if item.action == "delete" else f"Running {tool}"
         tag = "running"
 
         state.item_states[str(item.source)] = (state_label, reason, tag)
-        state.status_text = f"Converting {item.relative_source} ({state.conversion_done}/{state.conversion_total})"
+        state.status_text = f"Processing {item.relative_source} ({state.conversion_done}/{state.conversion_total})"
 
         if self.current_project and self.current_project.root.resolve() == project_root.resolve():
             self._set_item_state(item, state_label, reason, tag)
@@ -1158,7 +1161,7 @@ class Md2DocApp(tk.Tk):
         if result.status == "converted":
             state.converted_count += 1
             state_val = _state_label("done")
-            reason_val = "Output generated"
+            reason_val = result.message if result.item.action == "delete" else "Output generated"
             tag_val = "done"
         elif result.status == "skipped":
             state.skipped_count += 1
@@ -1888,6 +1891,7 @@ def _input_label(kind: str) -> str:
 def _state_label(action: str) -> str:
     return {
         "convert": "[TO CONVERT]",
+        "delete": "[TO DELETE]",
         "skip": "[UP TO DATE]",
         "queued": "[QUEUED]",
         "running": "[RUNNING]",

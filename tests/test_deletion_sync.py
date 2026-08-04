@@ -117,6 +117,37 @@ class DeletionSyncBehaviorTests(unittest.TestCase):
             reloaded_manifest = BuildManifest.load(root)
             self.assertNotIn("orphan.md", reloaded_manifest.records)
 
+    def test_sync_deletes_when_deleted_source_in_sources_list(self) -> None:
+        """测试当显式传入包含已删除 md 文件的 sources 列表时，plan_conversions 和 run_conversions 不抛出 FileNotFoundError 并正确执行清理。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            md_file = root / "deleted.md"
+            docx_file = root / "deleted.docx"
+            docx_file.write_text("dummy content", encoding="utf-8")
+
+            manifest = BuildManifest.load(root)
+            manifest.records["deleted.md"] = {
+                "source_sha256": "abc123hash",
+                "output": str(docx_file),
+                "output_format": "docx",
+            }
+            manifest.save()
+
+            settings = ConvertSettings(sync_deletes=True)
+            # 模拟 UI 或全量转换时，sources 列表中包含非空 Path（如已删除的 md_file）
+            sources = [md_file]
+
+            plans = plan_conversions(root, sources, settings, manifest)
+            self.assertEqual(len(plans), 1)
+            self.assertEqual(plans[0].action, "delete")
+            self.assertEqual(plans[0].relative_source, "deleted.md")
+
+            results = run_conversions(root, sources, settings)
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0].status, "converted")
+            self.assertFalse(docx_file.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -381,9 +381,48 @@ def plan_conversions(
 
     for source in sources:
         source = Path(source).expanduser().resolve()
-        relative = source.relative_to(root).as_posix()
+        try:
+            relative = source.relative_to(root).as_posix()
+        except ValueError:
+            continue
         scanned_relatives.add(relative)
         record = manifest.records.get(relative)
+        if not source.exists():
+            if settings.sync_deletes or include_deletes:
+                out_path = None
+                if record and record.get("output"):
+                    out_path = Path(record["output"])
+                    if not out_path.is_absolute():
+                        out_path = root / out_path
+                else:
+                    out_path = output_dir / source.relative_to(root).with_suffix(output_suffix)
+
+                if out_path.exists():
+                    planned.append(
+                        PlanItem(
+                            source=source,
+                            relative_source=relative,
+                            output=out_path,
+                            action="delete",
+                            reason="源文件已被删除",
+                            fingerprint=FileFingerprint(size=0, mtime_ns=0, sha256=""),
+                            settings_signature=signature,
+                        )
+                    )
+            else:
+                planned.append(
+                    PlanItem(
+                        source=source,
+                        relative_source=relative,
+                        output=output_dir / source.relative_to(root).with_suffix(output_suffix),
+                        action="skip",
+                        reason="源文件不存在",
+                        fingerprint=FileFingerprint(size=0, mtime_ns=0, sha256=""),
+                        settings_signature=signature,
+                    )
+                )
+            continue
+
         fingerprint = _plan_fingerprint(
             source,
             record,
@@ -568,7 +607,11 @@ def clean_orphans(
 
 
 def file_fingerprint(path: Path) -> FileFingerprint:
-    return _file_fingerprint_from_stat(path, path.stat())
+    try:
+        stat = path.stat()
+        return _file_fingerprint_from_stat(path, stat)
+    except OSError:
+        return FileFingerprint(size=0, mtime_ns=0, sha256="")
 
 
 def _plan_fingerprint(
@@ -577,7 +620,10 @@ def _plan_fingerprint(
     *,
     use_cached: bool,
 ) -> FileFingerprint:
-    stat = source.stat()
+    try:
+        stat = source.stat()
+    except OSError:
+        return FileFingerprint(size=0, mtime_ns=0, sha256="")
     if use_cached:
         cached_sha = str(record.get("source_sha256") or "") if record else ""
         if record and (
