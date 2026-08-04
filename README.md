@@ -20,6 +20,7 @@ Local document converter supporting four types of project formats:
 - Configure document output per project.
 - Store project metadata in `.md2doc/project.json`.
 - Store conversion history in `.md2doc/manifest.json`.
+- Automatically synchronize deletion of orphan output documents when source files are deleted, moved, or renamed, with dedicated `md2doc clean` command support.
 
 By default, generated files are written next to the source Markdown file:
 
