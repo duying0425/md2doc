@@ -93,7 +93,10 @@ def main(argv: list[str] | None = None) -> int:
     deps_parser.add_argument("--format", default="docx", choices=OUTPUT_FORMATS)
     deps_parser.add_argument("--pandoc", dest="pandoc_cmd", default="pandoc")
     deps_parser.add_argument("--mermaid-filter", dest="mermaid_filter_cmd", default="mermaid-filter")
-    deps_parser.add_argument("--install", action="store_true", help="Automatically install missing dependencies")
+    deps_parser.add_argument("--d2", dest="d2_cmd", default="d2", help="D2 CLI executable or path")
+    deps_parser.add_argument("--drawio", dest="drawio_cmd", default="drawio", help="Draw.io Desktop executable or path")
+    deps_parser.add_argument("--install", action="store_true", help="Automatically install missing core dependencies")
+    deps_parser.add_argument("--install-all", action="store_true", help="Automatically install all dependencies including D2 and Draw.io")
 
     args = parser.parse_args(argv)
 
@@ -116,12 +119,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "scan":
             return _scan(args)
         if args.command == "deps":
-            if args.install:
+            if args.install or getattr(args, "install_all", False):
                 from .dependencies import ensure_startup_dependencies
                 try:
+                    extra_kwargs = {}
+                    if getattr(args, "install_all", False):
+                        extra_kwargs["install_optional"] = True
                     ensure_startup_dependencies(
                         kind=args.kind,
                         on_progress=lambda msg: print(f"Installer: {msg}"),
+                        **extra_kwargs,
                     )
                 except Exception as exc:
                     print(f"error: installation failed: {exc}", file=sys.stderr)
@@ -132,12 +139,15 @@ def main(argv: list[str] | None = None) -> int:
                     output_format=args.format,
                     pandoc_cmd=args.pandoc_cmd,
                     mermaid_filter_cmd=args.mermaid_filter_cmd,
+                    d2_cmd=getattr(args, "d2_cmd", "d2"),
+                    drawio_cmd=getattr(args, "drawio_cmd", "drawio"),
                 )
             )
             for check in checks:
+                opt_str = " (optional)" if getattr(check, "optional", False) else ""
                 state = "ok" if check.available else "missing"
-                print(f"{check.name}: {state} - {check.detail}")
-            return 0 if all(check.available for check in checks) else 1
+                print(f"{check.name}: {state}{opt_str} - {check.detail}")
+            return 0 if all(check.available for check in checks if not getattr(check, "optional", False)) else 1
         if args.command == "clean":
             return _clean(args)
         if args.command == "plan":
@@ -211,6 +221,13 @@ def _add_conversion_arguments(parser: argparse.ArgumentParser, *, dry_run: bool)
     )
     parser.add_argument("--pandoc", dest="pandoc_cmd", default=None)
     parser.add_argument("--mermaid-filter", dest="mermaid_filter_cmd", default=None)
+    parser.add_argument("--d2-cmd", default=None)
+    parser.add_argument("--d2-theme", default=None)
+    parser.add_argument("--d2-layout", default=None)
+    parser.add_argument("--d2-sketch", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--d2-pad", type=int, default=None)
+    parser.add_argument("--drawio-cmd", default=None)
+    parser.add_argument("--drawio-theme", default=None)
     parser.add_argument(
         "--pandoc-arg",
         action="append",
@@ -342,6 +359,13 @@ def _settings_from_args(config: ProjectConfig, args: argparse.Namespace) -> Conv
         "figure_caption_position",
         "pandoc_cmd",
         "mermaid_filter_cmd",
+        "d2_cmd",
+        "d2_theme",
+        "d2_layout",
+        "d2_sketch",
+        "d2_pad",
+        "drawio_cmd",
+        "drawio_theme",
         "hr_to_pagebreak",
     ):
         value = getattr(args, name, None)

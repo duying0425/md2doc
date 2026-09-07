@@ -1386,6 +1386,10 @@ class SettingsDialog(tk.Toplevel):
         self.mermaid_background_var = tk.StringVar(value=project.mermaid_background)
         self.mermaid_scale_var = tk.StringVar(value=str(project.mermaid_scale or ""))
         self.mermaid_min_dpi_var = tk.StringVar(value=str(project.mermaid_min_dpi))
+        self.d2_theme_var = tk.StringVar(value=project.d2_theme)
+        self.d2_layout_var = tk.StringVar(value=project.d2_layout)
+        self.d2_sketch_var = tk.BooleanVar(value=project.d2_sketch)
+        self.drawio_theme_var = tk.StringVar(value=project.drawio_theme)
         self.hr_to_pagebreak_var = tk.BooleanVar(value=project.hr_to_pagebreak)
         self.sync_deletes_var = tk.BooleanVar(value=project.sync_deletes)
         self.html_viewport_width_var = tk.StringVar(value=str(project.html_viewport_width))
@@ -1412,15 +1416,18 @@ class SettingsDialog(tk.Toplevel):
             document = ttk.Frame(notebook, padding=self.parent._px(12))
             word = ttk.Frame(notebook, padding=self.parent._px(12))
             mermaid = ttk.Frame(notebook, padding=self.parent._px(12))
+            d2_drawio = ttk.Frame(notebook, padding=self.parent._px(12))
             advanced = ttk.Frame(notebook, padding=self.parent._px(12))
             notebook.add(document, text="Document")
             notebook.add(word, text="Word")
             notebook.add(mermaid, text="Mermaid")
+            notebook.add(d2_drawio, text="D2 & Draw.io")
             notebook.add(advanced, text="Advanced")
 
             self._build_document_tab(document)
             self._build_word_tab(word)
             self._build_mermaid_tab(mermaid)
+            self._build_d2_drawio_tab(d2_drawio)
             self._build_advanced_tab(advanced)
 
         buttons = ttk.Frame(self)
@@ -1569,6 +1576,38 @@ class SettingsDialog(tk.Toplevel):
             width=10,
         ).grid(row=4, column=1, sticky="w", pady=self.parent._pad(8, 0))
 
+    def _build_d2_drawio_tab(self, frame: ttk.Frame) -> None:
+        frame.columnconfigure(1, weight=1)
+        ttk.Label(frame, text="D2 Theme").grid(row=0, column=0, sticky="w", pady=self.parent._pad(4, 0))
+        ttk.Combobox(
+            frame,
+            textvariable=self.d2_theme_var,
+            values=("default", "neutral-default", "dark-mauve", "terminal", "earth", "colorblind-clear"),
+            width=20,
+        ).grid(row=0, column=1, sticky="w", pady=self.parent._pad(4, 0))
+
+        ttk.Label(frame, text="D2 Layout").grid(row=1, column=0, sticky="w", pady=self.parent._pad(4, 0))
+        ttk.Combobox(
+            frame,
+            textvariable=self.d2_layout_var,
+            values=("dagre", "elk", "tala"),
+            state="readonly",
+            width=15,
+        ).grid(row=1, column=1, sticky="w", pady=self.parent._pad(4, 0))
+
+        ttk.Checkbutton(frame, text="D2 Sketch mode (hand-drawn style)", variable=self.d2_sketch_var).grid(
+            row=2, column=0, columnspan=2, sticky="w", pady=self.parent._pad(8, 0)
+        )
+
+        ttk.Label(frame, text="Draw.io Theme").grid(row=3, column=0, sticky="w", pady=self.parent._pad(8, 0))
+        ttk.Combobox(
+            frame,
+            textvariable=self.drawio_theme_var,
+            values=("light", "dark"),
+            state="readonly",
+            width=15,
+        ).grid(row=3, column=1, sticky="w", pady=self.parent._pad(8, 0))
+
     def _build_advanced_tab(self, frame: ttk.Frame) -> None:
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(1, weight=1)
@@ -1641,6 +1680,10 @@ class SettingsDialog(tk.Toplevel):
             self.mermaid_background_var.set(defaults.mermaid_background)
             self.mermaid_scale_var.set(str(defaults.mermaid_scale or ""))
             self.mermaid_min_dpi_var.set(str(defaults.mermaid_min_dpi))
+            self.d2_theme_var.set(defaults.d2_theme)
+            self.d2_layout_var.set(defaults.d2_layout)
+            self.d2_sketch_var.set(defaults.d2_sketch)
+            self.drawio_theme_var.set(defaults.drawio_theme)
             if hasattr(self, "extra_args_text"):
                 self.extra_args_text.delete("1.0", tk.END)
                 self.extra_args_text.insert("1.0", " ".join(defaults.extra_pandoc_args))
@@ -1711,6 +1754,10 @@ class SettingsDialog(tk.Toplevel):
         self.project.mermaid_background = self.mermaid_background_var.get().strip() or "white"
         self.project.mermaid_scale = mermaid_scale
         self.project.mermaid_min_dpi = mermaid_min_dpi
+        self.project.d2_theme = self.d2_theme_var.get().strip() or "default"
+        self.project.d2_layout = self.d2_layout_var.get().strip() or "dagre"
+        self.project.d2_sketch = self.d2_sketch_var.get()
+        self.project.drawio_theme = self.drawio_theme_var.get().strip() or "light"
         self.project.hr_to_pagebreak = self.hr_to_pagebreak_var.get()
         self.project.sync_deletes = self.sync_deletes_var.get()
         self.project.extra_pandoc_args = extra_args

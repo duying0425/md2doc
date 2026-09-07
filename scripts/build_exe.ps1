@@ -53,6 +53,7 @@ $windowMode = if ($Console) { "--console" } else { "--windowed" }
     --paths (Join-Path $Root "src") `
     --collect-all markitdown `
     --collect-all playwright `
+    --collect-data md2doc `
     (Join-Path $Root "scripts\pyinstaller_entry.py")
 if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller build failed."

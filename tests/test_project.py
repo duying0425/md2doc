@@ -48,6 +48,28 @@ class ProjectKindTests(unittest.TestCase):
         self.assertTrue(config.to_dict()["figure_numbering"])
         self.assertEqual(config.to_dict()["config_version"], CURRENT_PROJECT_CONFIG_VERSION)
 
+    def test_d2_and_drawio_serialization(self) -> None:
+        config = ProjectConfig.from_dict(
+            {
+                "name": "Docs",
+                "root": "/tmp/docs",
+                "d2_theme": "neutral-default",
+                "d2_layout": "elk",
+                "d2_sketch": True,
+                "drawio_theme": "dark",
+            }
+        )
+        self.assertEqual(config.d2_theme, "neutral-default")
+        self.assertEqual(config.d2_layout, "elk")
+        self.assertTrue(config.d2_sketch)
+        self.assertEqual(config.drawio_theme, "dark")
+        d = config.to_dict()
+        self.assertEqual(d["d2_theme"], "neutral-default")
+        self.assertEqual(d["d2_layout"], "elk")
+        self.assertTrue(d["d2_sketch"])
+        self.assertEqual(d["drawio_theme"], "dark")
+
+
     def test_legacy_config_without_kind_defaults_to_md2doc(self) -> None:
         config = ProjectConfig.from_dict({"name": "Docs", "root": "/tmp/docs", "output_format": "docx"})
 

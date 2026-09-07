@@ -1,0 +1,43 @@
+direction: down
+
+app_layer: "1. 应用层（面向装备业务应用与开发）" {
+  style.fill: "#dae8fc"
+  service_model: "服务模型\n(服务建模 / 服务链 / API / 应用库)"
+  public_services: "公共服务\n(日志 / 配置 / 时钟同步 / 数据字典)"
+  dev_platform: "应用支持平台\n(模型编辑 / 代码生成 / 仿真沙箱)"
+}
+
+framework_layer: "2. 框架层（业务与管理软总线）" {
+  style.fill: "#d5e8d4"
+  biz_bus: "业务软总线\n(实时数据 / 控制指令 / 模型推理流)"
+  mgmt_bus: "管理软总线\n(配置下发 / 状态上报 / 运维指令)"
+  comm_stack: "统一通信与PAL协议层\n(Pub-Sub / RPC / QoS分级传输)"
+}
+
+system_services: "3. 系统服务层（中枢管控平面）" {
+  style.fill: "#fff2cc"
+  res_mgmt: "异构资源管控\n(设备监管器 / 资源管理器)"
+  task_sched: "任务协同调度\n(服务链拆解 / 节点匹配分发)"
+  calc_engine: "分布式计算分析引擎\n(Pod编排 / AI运行时)"
+  ctrl_engine: "分布式采控引擎\n(RTE代理 / 命令闭环)"
+  hmi_engine: "分布式人机交互引擎\n(HMI门户 / 权限隔离)"
+  sec_ops: "安全与运维\n(鉴权加密 / 升级 / 审计溯源)"
+}
+
+res_abstraction: "4. 资源抽象层（资源与设备事实视图）" {
+  style.fill: "#e1d5e7"
+  hal: "硬件抽象层 (HAL)\n(PLC / 点位 / 舵机 / 传感器)"
+  virt_bus: "时分/空分虚拟总线\n(设备池化与虚实映射)"
+}
+
+kernel_layer: "5. 内核层（操作系统适配与硬件环境）" {
+  style.fill: "#f8cecc"
+  rtos: "实时操作系统 RTOS"
+  linux: "标准 Linux 与系统调用"
+  hypervisor: "虚拟化与隔离底座"
+}
+
+app_layer -> framework_layer: "业务动作 / 服务调用"
+framework_layer -> system_services: "软总线消息路由与分发"
+system_services -> res_abstraction: "资源句柄 / 原子操作"
+res_abstraction -> kernel_layer: "底层驱动对接与硬件适配"

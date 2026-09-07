@@ -10,6 +10,7 @@ from pathlib import Path
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 from typing import Callable, Iterable, Literal
@@ -77,6 +78,7 @@ class DependencyCheck:
     command: str
     available: bool
     detail: str
+    optional: bool = False
 
 
 @dataclass(frozen=True)
@@ -111,6 +113,13 @@ class ConvertSettings:
     mermaid_background: str = "white"
     mermaid_scale: float = 3.0
     mermaid_min_dpi: float = 450.0
+    d2_cmd: str = "d2"
+    d2_theme: str = "default"
+    d2_layout: str = "dagre"
+    d2_sketch: bool = False
+    d2_pad: int = 10
+    drawio_cmd: str = "drawio"
+    drawio_theme: str = "light"
     figure_numbering: bool = True
     figure_prefix: str = "图表"
     figure_caption_position: str = "below"
@@ -246,6 +255,13 @@ def settings_from_project(config: ProjectConfig, *, force: bool = False) -> Conv
         mermaid_background=config.mermaid_background,
         mermaid_scale=config.mermaid_scale,
         mermaid_min_dpi=config.mermaid_min_dpi,
+        d2_cmd=config.d2_cmd,
+        d2_theme=config.d2_theme,
+        d2_layout=config.d2_layout,
+        d2_sketch=config.d2_sketch,
+        d2_pad=config.d2_pad,
+        drawio_cmd=config.drawio_cmd,
+        drawio_theme=config.drawio_theme,
         figure_numbering=config.figure_numbering,
         figure_prefix=config.figure_prefix,
         figure_caption_position=config.figure_caption_position,
@@ -268,11 +284,13 @@ def check_dependencies(settings: ConvertSettings) -> list[DependencyCheck]:
         _check_command("Pandoc", settings.pandoc_cmd),
         _check_command("mermaid-filter", settings.mermaid_filter_cmd, allow_version_failure=True),
         _check_mermaid_browser_runtime(),
+        check_d2(settings.d2_cmd, optional=True),
+        check_drawio(settings.drawio_cmd, optional=True),
     ]
 
 
 def missing_dependency_message(checks: Iterable[DependencyCheck]) -> str:
-    missing = [check for check in checks if not check.available]
+    missing = [check for check in checks if not check.available and not getattr(check, "optional", False)]
     if not missing:
         return ""
     lines = ["Missing required conversion tools:"]
@@ -292,6 +310,57 @@ def missing_dependency_message(checks: Iterable[DependencyCheck]) -> str:
     if "Playwright/Chromium" in names:
         lines.append("Install Playwright and a browser: pip install playwright && python -m playwright install chromium")
     return "\n".join(lines)
+
+
+def check_d2(command: str = "d2", optional: bool = False) -> DependencyCheck:
+    from .diagram_renderer import resolve_d2_command
+
+    resolved = resolve_d2_command(command)
+    if _command_exists(resolved[0]):
+        return DependencyCheck(
+            name="D2 CLI",
+            command=command,
+            available=True,
+            detail=f"found at {resolved[0]}",
+            optional=optional,
+        )
+    return DependencyCheck(
+        name="D2 CLI",
+        command=command,
+        available=False,
+        detail=f"{command} was not found (install with: winget install Terrastruct.D2)",
+        optional=optional,
+    )
+
+
+def check_drawio(command: str = "drawio", optional: bool = False) -> DependencyCheck:
+    from .diagram_renderer import resolve_drawio_command
+
+    resolved = resolve_drawio_command(command)
+    if resolved and _command_exists(resolved[0]):
+        return DependencyCheck(
+            name="Draw.io",
+            command=command,
+            available=True,
+            detail=f"found Desktop CLI at {resolved[0]}",
+            optional=optional,
+        )
+    if importlib.util.find_spec("playwright") is not None:
+        return DependencyCheck(
+            name="Draw.io",
+            command=command,
+            available=True,
+            detail="available via Playwright headless engine",
+            optional=optional,
+        )
+    return DependencyCheck(
+        name="Draw.io",
+        command=command,
+        available=False,
+        detail="neither Draw.io Desktop nor Playwright was found (install with: winget install JGraph.Draw)",
+        optional=optional,
+    )
+
 
 
 def scan_source_files(
@@ -732,6 +801,11 @@ def settings_signature(settings: ConvertSettings, project_root: Path | None = No
         "mermaid_background": settings.mermaid_background,
         "mermaid_scale": settings.mermaid_scale,
         "mermaid_min_dpi": settings.mermaid_min_dpi,
+        "d2_theme": settings.d2_theme,
+        "d2_layout": settings.d2_layout,
+        "d2_sketch": settings.d2_sketch,
+        "d2_pad": settings.d2_pad,
+        "drawio_theme": settings.drawio_theme,
         "figure_numbering": settings.figure_numbering,
         "figure_prefix": settings.figure_prefix,
         "figure_caption_position": settings.figure_caption_position,
@@ -863,9 +937,14 @@ def _run_one(
     item.output.parent.mkdir(parents=True, exist_ok=True)
     cmd = _pandoc_command(project_root, item, settings)
     env = os.environ.copy()
+    src_dir = str(Path(__file__).resolve().parent.parent)
+    current_pp = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{src_dir}{os.pathsep}{current_pp}" if current_pp else src_dir
     env.update(_mermaid_environment(settings, project_root))
     env["MERMAID_FILTER_LOC"] = _shorten_windows_path(_ensure_mermaid_image_dir(project_root, item))
     env["MD2DOC_RESOURCE_PATHS"] = os.pathsep.join(_pandoc_resource_paths(item, project_root))
+    if item.reason == "forced":
+        env["MD2DOC_FORCE_DIAGRAMS"] = "1"
     mermaid_error_path = _reset_mermaid_filter_error_log(item.source.parent)
     completed = _run_subprocess_with_cancel(
         cmd,
@@ -1340,23 +1419,47 @@ local function resolve_filepath(src)
   return nil
 end
 
-local function get_png_dimensions(filepath)
-  local file = io.open(filepath, "rb")
-  if not file then return nil, nil end
-  file:seek("set", 16)
-  local bytes = file:read(8)
-  file:close()
-  if not bytes or #bytes < 8 then return nil, nil end
-  local w = bytes:byte(1) * 16777216 + bytes:byte(2) * 65536 + bytes:byte(3) * 256 + bytes:byte(4)
-  local h = bytes:byte(5) * 16777216 + bytes:byte(6) * 65536 + bytes:byte(7) * 256 + bytes:byte(8)
+local function read_image_bytes(src, max_bytes)
+  if pandoc.mediabag and pandoc.mediabag.fetch then
+    local ok, mt, data = pcall(pandoc.mediabag.fetch, src)
+    if ok and data and #data > 0 then
+      if max_bytes and #data > max_bytes then
+        return string.sub(data, 1, max_bytes)
+      end
+      return data
+    end
+  end
+  local filepath = resolve_filepath(src)
+  if filepath then
+    if pandoc.system and pandoc.system.read_file then
+      local ok, data = pcall(pandoc.system.read_file, filepath)
+      if ok and data and #data > 0 then
+        if max_bytes and #data > max_bytes then
+          return string.sub(data, 1, max_bytes)
+        end
+        return data
+      end
+    end
+    local file = io.open(filepath, "rb")
+    if file then
+      local data = file:read(max_bytes or "*all")
+      file:close()
+      return data
+    end
+  end
+  return nil
+end
+
+local function get_png_dimensions(src)
+  local bytes = read_image_bytes(src, 32)
+  if not bytes or #bytes < 24 then return nil, nil end
+  local w = bytes:byte(17) * 16777216 + bytes:byte(18) * 65536 + bytes:byte(19) * 256 + bytes:byte(20)
+  local h = bytes:byte(21) * 16777216 + bytes:byte(22) * 65536 + bytes:byte(23) * 256 + bytes:byte(24)
   return w, h
 end
 
-local function get_svg_dimensions(filepath)
-  local file = io.open(filepath, "rb")
-  if not file then return nil, nil end
-  local content = file:read(4096)
-  file:close()
+local function get_svg_dimensions(src)
+  local content = read_image_bytes(src, 8192)
   if not content then return nil, nil end
   
   local svg_tag = string.match(content, "<svg[^>]+>")
@@ -1376,24 +1479,22 @@ local function get_svg_dimensions(filepath)
 end
 
 function Image(el)
-  local filepath = resolve_filepath(el.src)
-  if not filepath then return el end
-  
-  local lower_filepath = filepath:lower()
+  local lower_src = el.src:lower()
   local w, h = nil, nil
-  if string.match(lower_filepath, "%.png$") then
-    w, h = get_png_dimensions(filepath)
-  elseif string.match(lower_filepath, "%.svg$") then
-    w, h = get_svg_dimensions(filepath)
+  if string.match(lower_src, "%.png$") then
+    w, h = get_png_dimensions(el.src)
+  elseif string.match(lower_src, "%.svg$") then
+    w, h = get_svg_dimensions(el.src)
   end
   
   if w and h then
     local scale = 1.0
     local min_dpi = 0.0
-    if string.match(filepath, "mermaid%-images") then
+    local check_path = resolve_filepath(el.src) or el.src
+    if string.match(check_path, "mermaid%-images") then
       scale = tonumber(os.getenv("MERMAID_FILTER_SCALE")) or 1.0
       if scale <= 0 then scale = 1.0 end
-      if string.match(lower_filepath, "%.png$") then
+      if string.match(lower_src, "%.png$") then
         min_dpi = tonumber(os.getenv("MERMAID_FILTER_MIN_DPI")) or 0.0
         if min_dpi < 0 then min_dpi = 0.0 end
       end
@@ -1436,6 +1537,279 @@ def _ensure_mermaid_fit_lua(project_root: Path) -> Path:
     lua_path = meta_dir / "mermaid-fit.lua"
     lua_path.write_text(LUA_FILTER_CONTENT, encoding="utf-8")
     return lua_path
+
+
+DIAGRAM_FILTER_LUA_TEMPLATE = r"""-- diagram-filter.lua
+local python_exe = __MD2DOC_PYTHON_EXE__
+local cache_dir = __MD2DOC_CACHE_DIR__
+local d2_cmd = __MD2DOC_D2_CMD__
+local drawio_cmd = __MD2DOC_DRAWIO_CMD__
+local d2_theme = __MD2DOC_D2_THEME__
+local d2_layout = __MD2DOC_D2_LAYOUT__
+local d2_sketch = __MD2DOC_D2_SKETCH__
+local d2_pad = __MD2DOC_D2_PAD__
+local drawio_theme = __MD2DOC_DRAWIO_THEME__
+local force_render = os.getenv("MD2DOC_FORCE_DIAGRAMS") == "1"
+
+local function file_exists(path)
+  local f = io.open(path, "rb")
+  if f then
+    f:close()
+    return true
+  end
+  return false
+end
+
+local function needs_render(path)
+  if force_render then return true end
+  return not file_exists(path)
+end
+
+local function write_file(path, content)
+  local f = io.open(path, "wb")
+  if f then
+    f:write(content)
+    f:close()
+    return true
+  end
+  return false
+end
+
+local function url_decode(str)
+  str = string.gsub(str, "+", " ")
+  str = string.gsub(str, "%%(%x%x)", function(h)
+    return string.char(tonumber(h, 16))
+  end)
+  return str
+end
+
+local function split_path(str)
+  local t = {}
+  local sep = ";"
+  if not string.match(package.config, "^\\") then
+    sep = ":"
+  end
+  for chunk in string.gmatch(str, "[^" .. sep .. "]+") do
+    table.insert(t, chunk)
+  end
+  return t
+end
+
+local function resolve_filepath(src)
+  local f = io.open(src, "rb")
+  if f then
+    f:close()
+    return src
+  end
+  local decoded = url_decode(src)
+  f = io.open(decoded, "rb")
+  if f then
+    f:close()
+    return decoded
+  end
+  local paths_str = os.getenv("MD2DOC_RESOURCE_PATHS")
+  if paths_str then
+    local paths = split_path(paths_str)
+    for _, path in ipairs(paths) do
+      local full_path = path .. "/" .. decoded
+      f = io.open(full_path, "rb")
+      if f then f:close() return full_path end
+      local full_path_bs = path .. "\\" .. decoded
+      f = io.open(full_path_bs, "rb")
+      if f then f:close() return full_path_bs end
+    end
+  end
+  return nil
+end
+
+local function render_via_python(kind, content, out_path, extra_args)
+  local args = {"-m", "md2doc.diagram_renderer", "--kind", kind, "--output", out_path}
+  if extra_args then
+    for _, arg in ipairs(extra_args) do
+      table.insert(args, arg)
+    end
+  end
+  local ok, res = pcall(pandoc.pipe, python_exe, args, content)
+  if not ok then
+    io.stderr:write("[md2doc diagram warning] " .. kind .. " render failed: " .. tostring(res) .. "\n")
+  end
+  return file_exists(out_path)
+end
+
+local function clean_caption(caption)
+  if not caption then return "" end
+  return (caption:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function extract_caption_from_comments(text)
+  local cap = string.match(text, "^%s*#%s*caption%s*:%s*([^\r\n]+)")
+  if cap then return clean_caption(cap) end
+  cap = string.match(text, "^%s*<!%-%-%s*caption%s*:%s*([^%->]+)%-%->")
+  if cap then return clean_caption(cap) end
+  return nil
+end
+
+local function process_diagram(kind, content, caption_str, width_str, extra_args)
+  local hash_input = kind .. ":" .. content
+  if extra_args then
+    hash_input = hash_input .. ":" .. table.concat(extra_args, ":")
+  end
+  local hash = pandoc.utils.sha1(hash_input)
+  local out_svg = cache_dir .. "/" .. kind .. "-" .. hash .. ".svg"
+
+  if needs_render(out_svg) then
+    if kind == "svg" then
+      write_file(out_svg, content)
+    else
+      render_via_python(kind, content, out_svg, extra_args)
+    end
+  end
+
+  if file_exists(out_svg) then
+    local inlines = pandoc.List()
+    caption_str = clean_caption(caption_str)
+    if caption_str == "" then
+      local comment_cap = extract_caption_from_comments(content)
+      if comment_cap and comment_cap ~= "" then
+        caption_str = comment_cap
+      end
+    end
+    if caption_str ~= "" then
+      inlines:insert(pandoc.Str(caption_str))
+    end
+    local attr = pandoc.Attr("", {}, {})
+    if width_str and width_str ~= "" then
+      attr.attributes["width"] = width_str
+    end
+    local img = pandoc.Image(inlines, out_svg, "", attr)
+    return pandoc.Para({ img })
+  end
+  return nil
+end
+
+function CodeBlock(cb)
+  local cls = cb.classes[1] or ""
+  local caption = cb.attributes["caption"] or cb.attributes["title"] or ""
+  local width = cb.attributes["width"] or ""
+
+  if cls == "svg" then
+    local res = process_diagram("svg", cb.text, caption, width)
+    if res then return res end
+  elseif cls == "d2" then
+    local theme = cb.attributes["theme"] or d2_theme
+    local layout = cb.attributes["layout"] or d2_layout
+    local sketch = cb.attributes["sketch"] or d2_sketch
+    local extra = {"--d2-cmd", d2_cmd, "--theme", theme, "--layout", layout}
+    if sketch == "true" or sketch == true then table.insert(extra, "--sketch") end
+    local res = process_diagram("d2", cb.text, caption, width, extra)
+    if res then return res end
+  elseif cls == "drawio" or string.match(cb.text, "^%s*<mxfile") or string.match(cb.text, "^%s*<mxGraphModel") then
+    local extra = {"--drawio-cmd", drawio_cmd, "--theme", drawio_theme}
+    local res = process_diagram("drawio", cb.text, caption, width, extra)
+    if res then return res end
+  elseif (cls == "xml" or cls == "") and string.match(cb.text, "^%s*<svg") then
+    local res = process_diagram("svg", cb.text, caption, width)
+    if res then return res end
+  end
+  return cb
+end
+
+function RawBlock(rb)
+  if rb.format == "html" and string.match(rb.text, "^%s*<svg") then
+    local res = process_diagram("svg", rb.text, "", "")
+    if res then return res end
+  end
+  return rb
+end
+
+local function read_file_content(src)
+  if pandoc.mediabag and pandoc.mediabag.fetch then
+    local ok, mt, content = pcall(pandoc.mediabag.fetch, src)
+    if ok and content and #content > 0 then
+      return content
+    end
+  end
+  local filepath = resolve_filepath(src)
+  if filepath then
+    if pandoc.system and pandoc.system.read_file then
+      local ok, content = pcall(pandoc.system.read_file, filepath)
+      if ok and content and #content > 0 then
+        return content
+      end
+    end
+    local f = io.open(filepath, "rb")
+    if f then
+      local content = f:read("*all")
+      f:close()
+      return content
+    end
+  end
+  return nil
+end
+
+function Image(el)
+  local lower_src = el.src:lower()
+  if string.match(lower_src, "%.d2$") then
+    local content = read_file_content(el.src)
+    if content then
+      local extra = {"--d2-cmd", d2_cmd, "--theme", d2_theme, "--layout", d2_layout}
+      if d2_sketch == "true" then table.insert(extra, "--sketch") end
+      local hash = pandoc.utils.sha1("d2:" .. content .. ":" .. table.concat(extra, ":"))
+      local out_svg = cache_dir .. "/d2-" .. hash .. ".svg"
+      if needs_render(out_svg) then
+        render_via_python("d2", content, out_svg, extra)
+      end
+      if file_exists(out_svg) then
+        el.src = out_svg
+        return el
+      end
+    end
+  elseif string.match(lower_src, "%.drawio$") or string.match(lower_src, "%.drawio%.xml$") then
+    local content = read_file_content(el.src)
+    if content then
+      local extra = {"--drawio-cmd", drawio_cmd, "--theme", drawio_theme}
+      local hash = pandoc.utils.sha1("drawio:" .. content .. ":" .. table.concat(extra, ":"))
+      local out_svg = cache_dir .. "/drawio-" .. hash .. ".svg"
+      if needs_render(out_svg) then
+        render_via_python("drawio", content, out_svg, extra)
+      end
+      if file_exists(out_svg) then
+        el.src = out_svg
+        return el
+      end
+    end
+  end
+  return el
+end
+"""
+
+
+def _ensure_diagram_filter_lua(project_root: Path, settings: ConvertSettings) -> Path:
+    meta_dir = project_root / PROJECT_DIR_NAME
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = meta_dir / "diagrams-cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    lua_path = meta_dir / "diagram-filter.lua"
+    content = _diagram_filter_lua_content(project_root, settings)
+    lua_path.write_text(content, encoding="utf-8")
+    return lua_path
+
+
+def _diagram_filter_lua_content(project_root: Path, settings: ConvertSettings) -> str:
+    cache_dir = (project_root / PROJECT_DIR_NAME / "diagrams-cache").as_posix()
+    return (
+        DIAGRAM_FILTER_LUA_TEMPLATE
+        .replace("__MD2DOC_PYTHON_EXE__", _lua_string_literal(sys.executable.replace("\\", "/")))
+        .replace("__MD2DOC_CACHE_DIR__", _lua_string_literal(cache_dir))
+        .replace("__MD2DOC_D2_CMD__", _lua_string_literal(settings.d2_cmd))
+        .replace("__MD2DOC_DRAWIO_CMD__", _lua_string_literal(settings.drawio_cmd))
+        .replace("__MD2DOC_D2_THEME__", _lua_string_literal(settings.d2_theme))
+        .replace("__MD2DOC_D2_LAYOUT__", _lua_string_literal(settings.d2_layout))
+        .replace("__MD2DOC_D2_SKETCH__", _lua_string_literal(str(settings.d2_sketch).lower()))
+        .replace("__MD2DOC_D2_PAD__", _lua_string_literal(str(settings.d2_pad)))
+        .replace("__MD2DOC_DRAWIO_THEME__", _lua_string_literal(settings.drawio_theme))
+    )
+
 
 
 FIGURE_CAPTION_LUA_TEMPLATE = r"""-- figure-caption.lua
@@ -1640,6 +2014,7 @@ def _pandoc_command(project_root: Path, item: PlanItem, settings: ConvertSetting
     pandoc_cmd = _resolve_command(settings.pandoc_cmd)
     mermaid_filter_cmd = _resolve_command(settings.mermaid_filter_cmd)
     lua_filter_path = _ensure_mermaid_fit_lua(project_root)
+    diagram_filter_lua = _ensure_diagram_filter_lua(project_root, settings)
     cmd = [
         pandoc_cmd[0],
         *pandoc_cmd[1:],
@@ -1649,6 +2024,7 @@ def _pandoc_command(project_root: Path, item: PlanItem, settings: ConvertSetting
         "--filter",
         mermaid_filter_cmd[0],
         *mermaid_filter_cmd[1:],
+        f"--lua-filter={_shorten_windows_path(diagram_filter_lua)}",
     ]
     if settings.output_format == "docx" and settings.figure_numbering:
         figure_lua_path = _ensure_figure_caption_lua(project_root, settings)

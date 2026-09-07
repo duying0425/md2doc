@@ -13,7 +13,7 @@ Local document converter supporting four types of project formats:
 - Create projects from folders, choosing from four conversion formats.
 - Scan source files recursively (handles `.md`/`.markdown` for Markdown projects, `.docx`/`.pptx`/etc. for Office projects, `.qmd` for Quarto projects, and `.html`/`.htm` for HTML projects).
 - Convert one selected file or a batch of files.
-- Use Pandoc with `mermaid-filter` so Mermaid diagrams are rendered during DOCX export (for Markdown projects).
+- Export DOCX from Markdown using Pandoc, with automatic vector diagram rendering for Mermaid, D2, Draw.io, and raw SVG code.
 - Use Quarto CLI to compile `.qmd` documents into `.pptx` slides (for Quarto projects).
 - Use Chromium through Playwright to render HTML into one PDF page whose size follows the rendered HTML content instead of a default paper template.
 - Skip unchanged source files when a previous output already exists.
@@ -38,6 +38,7 @@ Open **Settings** in the desktop app to configure:
 - Document: table of contents, TOC depth, section numbering, title, subtitle, author, and date.
 - Word: `reference.docx`, default font (with preset choices), table border style, and an option to convert horizontal rules to page breaks.
 - Mermaid: format, theme, and background.
+- D2 & Draw.io: D2 theme, layout engine (dagre / elk / tala), sketch mode, padding, and Draw.io theme.
 - HTML to PDF: viewport width/height, device scale factor, render delay, and print background graphics.
 - Advanced: extra Pandoc arguments.
 
@@ -54,6 +55,14 @@ Install the external conversion tools depending on your project type:
   npm install -g mermaid-filter
   python -m playwright install chromium
   ```
+  - **D2 diagram support** (optional): Install the D2 CLI to render ```` ```d2 ```` code blocks and `.d2` files into crisp vector graphics:
+    ```powershell
+    winget install Terrastruct.D2
+    ```
+  - **Draw.io diagram support** (optional): Installing the official Draw.io desktop application is recommended for hardware-accelerated and offline font rendering; otherwise, md2doc automatically falls back to its built-in headless Playwright renderer:
+    ```powershell
+    winget install JGraph.Draw
+    ```
 - **Office documents to Markdown**: The required `markitdown` Python package is automatically installed as a dependency.
 - **Quarto Markdown to PowerPoint**: Install Quarto CLI from [quarto.org](https://quarto.org/docs/get-started/).
 - **HTML to PDF**: Install the Python `playwright` package. md2doc uses installed Microsoft Edge or Google Chrome when available; otherwise install Playwright Chromium:
@@ -146,6 +155,8 @@ Common `plan` and `convert` options:
 - `--title-page`, `--title`, `--subtitle`, `--author`, `--date`: metadata options.
 - `--reference-docx <file>`, `--default-font <name>`, `--font-size <n>` (CLI only), `--table-borders template|bordered|plain`, `--hr-to-pagebreak` / `--no-hr-to-pagebreak`: DOCX styling and layout options.
 - `--mermaid-format png|svg|pdf`, `--mermaid-theme <name>`, `--mermaid-background <value>`, `--mermaid-scale <n>`, `--mermaid-min-dpi <n>`: Mermaid rendering and sizing options.
+- `--d2-cmd <cmd>`, `--d2-theme <id>`, `--d2-layout <dagre|elk|tala>`, `--d2-sketch` / `--no-d2-sketch`, `--d2-pad <n>`: D2 rendering and styling options.
+- `--drawio-cmd <cmd>`, `--drawio-theme <light|dark>`: Draw.io rendering and theme options.
 - `--figure-numbering` / `--no-figure-numbering`, `--figure-prefix <label>`, `--figure-caption-position below|above`: number image captions with Word `SEQ` fields.
 - `--pandoc <command>`, `--mermaid-filter <command>`: override tool commands or paths.
 - `--pandoc-arg=<arg>`: append a raw Pandoc argument. Repeat for multiple arguments.
@@ -164,6 +175,46 @@ flowchart TD
   A[Open] --> B[Login]
 ```
 ````
+
+For D2 diagrams, Draw.io diagrams, and native SVG, you can paste the source code or reference diagram files directly in Markdown:
+
+- **D2 Diagrams** (supports Pandoc caption attribute or inline `# caption:` comment):
+  ````markdown
+  ```{.d2 caption="Service Interaction"}
+  client -> api_gateway: HTTP POST
+  api_gateway -> auth_service: Verify
+  api_gateway -> db: Save
+  ```
+  ````
+  Or reference a `.d2` file directly:
+  ```markdown
+  ![Deployment Diagram](diagrams/arch.d2)
+  ```
+
+- **Draw.io Diagrams** (supports pasting full `<mxfile>` or `<mxGraphModel>` XML directly):
+  ````markdown
+  ```drawio
+  <!-- caption: State Machine -->
+  <mxfile ...>
+    ...
+  </mxfile>
+  ```
+  ````
+  Or reference a `.drawio` file directly:
+  ```markdown
+  ![State Machine](diagrams/state.drawio)
+  ```
+
+- **Raw SVG Code and Files**:
+  ````markdown
+  ```svg
+  <!-- caption: Vector Graphic -->
+  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="50" cy="50" r="40" fill="#4f46e5" />
+  </svg>
+  ```
+  ````
+  Raw `<svg>...</svg>` HTML blocks or `![Graphic](assets/icon.svg)` references are also seamlessly converted to sharp vector graphics in the generated Word document.
 
 Examples:
 

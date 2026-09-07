@@ -70,6 +70,13 @@ class ProjectConfig:
     mermaid_background: str = "white"
     mermaid_scale: float = 3.0
     mermaid_min_dpi: float = 450.0
+    d2_theme: str = "default"
+    d2_layout: str = "dagre"
+    d2_sketch: bool = False
+    d2_pad: int = 10
+    drawio_theme: str = "light"
+    d2_cmd: str = "d2"
+    drawio_cmd: str = "drawio"
     figure_numbering: bool = True
     figure_prefix: str = "图表"
     figure_caption_position: str = "below"
@@ -127,6 +134,13 @@ class ProjectConfig:
             "mermaid_background": self.mermaid_background,
             "mermaid_scale": self.mermaid_scale,
             "mermaid_min_dpi": self.mermaid_min_dpi,
+            "d2_theme": self.d2_theme,
+            "d2_layout": self.d2_layout,
+            "d2_sketch": self.d2_sketch,
+            "d2_pad": self.d2_pad,
+            "drawio_theme": self.drawio_theme,
+            "d2_cmd": self.d2_cmd,
+            "drawio_cmd": self.drawio_cmd,
             "figure_numbering": self.figure_numbering,
             "figure_prefix": self.figure_prefix,
             "figure_caption_position": self.figure_caption_position,
@@ -214,6 +228,13 @@ class ProjectConfig:
             mermaid_background=str(data.get("mermaid_background") or "white"),
             mermaid_scale=mermaid_scale,
             mermaid_min_dpi=mermaid_min_dpi,
+            d2_theme=str(data.get("d2_theme") or "default"),
+            d2_layout=str(data.get("d2_layout") or "dagre"),
+            d2_sketch=bool(data.get("d2_sketch", False)),
+            d2_pad=int(data.get("d2_pad") or 10),
+            drawio_theme=str(data.get("drawio_theme") or "light"),
+            d2_cmd=str(data.get("d2_cmd") or "d2"),
+            drawio_cmd=str(data.get("drawio_cmd") or "drawio"),
             figure_numbering=bool(data.get("figure_numbering", True)),
             figure_prefix=raw_figure_prefix,
             figure_caption_position=str(data.get("figure_caption_position") or "below"),

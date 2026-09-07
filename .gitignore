@@ -6,9 +6,13 @@ __pycache__/
 build/
 dist/
 output/
-.md2doc/manifest.json
 bin/
 src/md2doc/build_info.py
+.md2doc/
+**/.md2doc/
+~$*.docx
+*.tmp
 mermaid-filter.err
 mermaid-filter.log
+examples/**/*.docx
 

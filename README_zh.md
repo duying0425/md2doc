@@ -14,7 +14,7 @@
 - **递归扫描源文件**（Markdown 项目扫描 `.md`/`.markdown`，Office 项目扫描 `.docx`/`.pptx`/等，Quarto 项目扫描 `.qmd`，HTML 项目扫描 `.html`/`.htm`）。
 - **转换单个选中文件或批量转换文件**。
 - **集成外部工具进行渲染**：
-  - Markdown 项目结合 Pandoc 与 `mermaid-filter` 渲染 Mermaid 并导出 DOCX。
+  - Markdown 项目结合 Pandoc 导出 DOCX，支持 Mermaid、D2、Draw.io 图表及原生 SVG 代码自动渲染为高质量矢量图。
   - Quarto 项目使用 Quarto CLI 渲染 PPTX 幻灯片。
   - HTML 项目使用 Playwright / Chromium 将页面渲染并导出为自适应尺寸的单页 PDF。
 - **智能跳过未修改的源文件**（当已有历史输出且源文件未更改时）。
@@ -39,6 +39,7 @@ docs/guide.md   -> docs/guide.docx
 - **文档（Document）**：目录、目录深度、章节编号、标题、副标题、作者和日期。
 - **Word**：`reference.docx`、默认字体（提供预设常用字体下拉框）、表格边框样式以及是否将水平分割线 (`---`) 转换为分页符。
 - **Mermaid**：图片格式、主题和背景。
+- **D2 & Draw.io**：D2 主题、布局引擎（dagre / elk / tala）、手绘草图风格（Sketch）、内边距，以及 Draw.io 主题。
 - **HTML 转 PDF**：浏览器视口宽高、设备缩放因子、渲染等待延迟以及是否打印背景图形。
 - **高级（Advanced）**：额外的 Pandoc 参数。
 
@@ -56,6 +57,14 @@ docs/guide.md   -> docs/guide.docx
   npm install -g mermaid-filter
   python -m playwright install chromium
   ```
+  - **D2 图表支持**（可选）：安装 D2 CLI 即可支持 ```` ```d2 ```` 代码块与 `.d2` 文件的矢量图渲染：
+    ```powershell
+    winget install Terrastruct.D2
+    ```
+  - **Draw.io 图表支持**（可选）：推荐安装 Draw.io 官方桌面版以获得硬件加速与离线字体渲染；若未安装，md2doc 会自动回退至内置 Playwright 渲染引擎：
+    ```powershell
+    winget install JGraph.Draw
+    ```
 - **Office 文档转 Markdown**：必需的 Python 库 `markitdown` 会在安装项目包时作为依赖自动安装。
 - **Quarto 转 PowerPoint**：从 [quarto.org](https://quarto.org/docs/get-started/) 安装 Quarto CLI。
 - **HTML 转 PDF**：安装 Python `playwright` 库。md2doc 会优先使用已安装的 Microsoft Edge 或 Google Chrome；如果均不可用，请安装 Playwright Chromium：
@@ -143,6 +152,8 @@ md2doc convert C:\docs\README.md --format docx
 - `--title-page`、`--title`、`--subtitle`、`--author`、`--date`：文档元数据选项。
 - `--reference-docx <file>`、`--default-font <name>`、`--font-size <n>`（仅限命令行）、`--table-borders template|bordered|plain`、`--hr-to-pagebreak` / `--no-hr-to-pagebreak`：DOCX 样式与布局选项。
 - `--mermaid-format png|svg|pdf`、`--mermaid-theme <name>`、`--mermaid-background <value>`、`--mermaid-scale <n>`、`--mermaid-min-dpi <n>`：Mermaid 渲染和尺寸选项。
+- `--d2-cmd <cmd>`、`--d2-theme <id>`、`--d2-layout <dagre|elk|tala>`、`--d2-sketch` / `--no-d2-sketch`、`--d2-pad <n>`：D2 渲染与样式选项。
+- `--drawio-cmd <cmd>`、`--drawio-theme <light|dark>`：Draw.io 渲染与主题选项。
 - `--figure-numbering` / `--no-figure-numbering`、`--figure-prefix <label>`、`--figure-caption-position below|above`：使用 Word 原生 `SEQ` 域为图片题注编号。
 - `--pandoc <command>`、`--mermaid-filter <command>`：覆盖工具的执行命令或路径。
 - `--pandoc-arg=<arg>`：追加原始 Pandoc 参数。如需多个参数请重复使用该选项。
@@ -161,6 +172,46 @@ flowchart TD
   A[打开登录页] --> B[登录]
 ```
 ````
+
+D2 图表、Draw.io 图表与原生 SVG 支持直接将代码或外部设计文件引入 Markdown 中：
+
+- **D2 架构图**（支持 Pandoc 属性题注或内部 `# caption:` 注释）：
+  ````markdown
+  ```{.d2 caption="微服务交互"}
+  client -> api_gateway: HTTP POST
+  api_gateway -> auth_service: Verify
+  api_gateway -> db: Save
+  ```
+  ````
+  或直接引用 `.d2` 源码文件：
+  ```markdown
+  ![系统部署图](diagrams/arch.d2)
+  ```
+
+- **Draw.io 图表**（支持直接粘贴 `<mxfile>` 或 `<mxGraphModel>` XML 代码）：
+  ````markdown
+  ```drawio
+  <!-- caption: 业务状态机 -->
+  <mxfile ...>
+    ...
+  </mxfile>
+  ```
+  ````
+  或直接引用 `.drawio` 图表文件：
+  ```markdown
+  ![业务状态机](diagrams/state.drawio)
+  ```
+
+- **原生 SVG 代码与矢量图**：
+  ````markdown
+  ```svg
+  <!-- caption: 矢量示例 -->
+  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="50" cy="50" r="40" fill="#4f46e5" />
+  </svg>
+  ```
+  ````
+  也支持直接在 Markdown 内嵌入 `<svg>...</svg>` HTML 块，或通过 `![矢量图](assets/icon.svg)` 引用。转换时均会保留清晰锐利的矢量格式（Word 原生 SVG 支持）。
 
 示例：
 

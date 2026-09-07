@@ -18,6 +18,7 @@ ProgressCallback = Callable[[str], None]
 def ensure_startup_dependencies(
     kind: str = KIND_MD2DOC,
     *,
+    install_optional: bool = False,
     on_progress: ProgressCallback | None = None,
     runner: InstallerRunner | None = None,
 ) -> None:
@@ -26,7 +27,8 @@ def ensure_startup_dependencies(
     _refresh_windows_path()
     settings = ConvertSettings(kind=kind)
     checks = check_dependencies(settings)
-    if all(check.available for check in checks):
+    required_ready = all(check.available for check in checks if not getattr(check, "optional", False))
+    if required_ready and not install_optional:
         _emit(on_progress, f"Conversion tools for {kind} are ready.")
         return
 
@@ -70,6 +72,20 @@ def ensure_startup_dependencies(
             _install_playwright_chromium(run, on_progress)
             _refresh_windows_path()
 
+        if install_optional:
+            if not _tool_available("d2"):
+                try:
+                    _emit(on_progress, "Installing D2 CLI with winget...")
+                    install_d2(run, on_progress)
+                except Exception as exc:
+                    _emit(on_progress, f"Optional D2 install skipped: {exc}")
+            if not _tool_available("draw.io") and not _tool_available("drawio"):
+                try:
+                    _emit(on_progress, "Installing Draw.io Desktop with winget...")
+                    install_drawio(run, on_progress)
+                except Exception as exc:
+                    _emit(on_progress, f"Optional Draw.io install skipped: {exc}")
+
     elif kind == KIND_QMD2PPT:
         if not _tool_available("quarto"):
             _install_quarto(run, on_progress)
@@ -82,7 +98,7 @@ def ensure_startup_dependencies(
             _refresh_windows_path()
 
     final_checks = check_dependencies(settings)
-    if not all(check.available for check in final_checks):
+    if not all(check.available for check in final_checks if not getattr(check, "optional", False)):
         raise RuntimeError(missing_dependency_message(final_checks))
     _emit(on_progress, "Dependency setup completed.")
 
@@ -259,10 +275,39 @@ def _refresh_windows_path() -> None:
         _env_path("ProgramFiles") / "Quarto" / "bin",
         _env_path("ProgramFiles(x86)") / "Quarto" / "bin",
         _env_path("LOCALAPPDATA") / "Programs" / "Quarto" / "bin",
+        _env_path("ProgramFiles") / "draw.io",
+        _env_path("ProgramFiles(x86)") / "draw.io",
+        _env_path("ProgramFiles") / "d2" / "bin",
+        _env_path("ProgramFiles") / "D2" / "bin",
+        _env_path("ProgramFiles") / "d2",
+        _env_path("ProgramFiles") / "D2",
+        _env_path("LOCALAPPDATA") / "Programs" / "d2" / "bin",
+        _env_path("LOCALAPPDATA") / "Programs" / "D2" / "bin",
+        _env_path("LOCALAPPDATA") / "Programs" / "d2",
+        _env_path("LOCALAPPDATA") / "Programs" / "D2",
     ]
     for path in paths:
         if path.exists():
             _prepend_path(path)
+
+
+def install_d2(
+    runner: InstallerRunner | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> None:
+    """Install D2 CLI using winget on Windows."""
+    _install_with_winget("D2", "Terrastruct.D2", runner or _run_command, on_progress)
+    _refresh_windows_path()
+
+
+def install_drawio(
+    runner: InstallerRunner | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> None:
+    """Install Draw.io Desktop using winget on Windows."""
+    _install_with_winget("Draw.io", "JGraph.Draw", runner or _run_command, on_progress)
+    _refresh_windows_path()
+
 
 
 def _prepend_path(path: Path) -> None:
