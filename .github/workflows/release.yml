@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   build-and-release:
@@ -62,3 +63,18 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Clean up old workflow runs to free Actions storage
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $runs = gh run list --repo ${{ github.repository }} --workflow=release.yml --status=completed --json databaseId | ConvertFrom-Json
+          foreach ($r in $runs) {
+            $id = "$($r.databaseId)"
+            if ($id -and $id -ne "${{ github.run_id }}") {
+              Write-Host "Deleting old completed run: $id"
+              gh run delete $id --repo ${{ github.repository }}
+            }
+          }
