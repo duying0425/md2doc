@@ -5,10 +5,14 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag to release against (defaults to pyproject.toml version)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
   build-and-release:
@@ -33,9 +37,25 @@ jobs:
         run: |
           ./scripts/build_exe.ps1
 
+      - name: Determine Tag
+        id: vars
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $tag = "${{ github.ref_name }}"
+          } elseif ("${{ inputs.tag_name }}" -ne "") {
+            $tag = "${{ inputs.tag_name }}"
+          } else {
+            $ver = (Get-Content pyproject.toml | Select-String 'version\s*=\s*"([^"]+)"').Matches.Groups[1].Value
+            $tag = "v$ver"
+          }
+          Write-Host "Releasing to tag: $tag"
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
       - name: Create Release and Upload Asset
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.vars.outputs.tag }}
           files: bin/md2doc.exe
           generate_release_notes: true
           draft: false
