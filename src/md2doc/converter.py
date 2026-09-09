@@ -108,11 +108,13 @@ class ConvertSettings:
     default_font: str = ""
     default_font_size: int = 0
     table_borders: str = "template"
+    mermaid_quality: str = "medium"
     mermaid_format: str = "png"
     mermaid_theme: str = "default"
     mermaid_background: str = "white"
     mermaid_scale: float = 3.0
     mermaid_min_dpi: float = 450.0
+    mermaid_min_dpi: float = 300.0
     d2_cmd: str = "d2"
     d2_theme: str = "default"
     d2_layout: str = "dagre"
@@ -250,6 +252,7 @@ def settings_from_project(config: ProjectConfig, *, force: bool = False) -> Conv
         default_font=config.default_font,
         default_font_size=config.default_font_size,
         table_borders=config.table_borders,
+        mermaid_quality=config.mermaid_quality,
         mermaid_format=config.mermaid_format,
         mermaid_theme=config.mermaid_theme,
         mermaid_background=config.mermaid_background,
@@ -796,6 +799,7 @@ def settings_signature(settings: ConvertSettings, project_root: Path | None = No
         "default_font": settings.default_font,
         "default_font_size": settings.default_font_size,
         "table_borders": settings.table_borders,
+        "mermaid_quality": settings.mermaid_quality,
         "mermaid_format": settings.mermaid_format,
         "mermaid_theme": settings.mermaid_theme,
         "mermaid_background": settings.mermaid_background,
@@ -2807,8 +2811,9 @@ def _requires_recorded_settings_to_skip(settings: ConvertSettings) -> bool:
         or settings.mermaid_format != "png"
         or settings.mermaid_theme != "default"
         or settings.mermaid_background != "white"
+        or settings.mermaid_quality != "medium"
         or settings.mermaid_scale != 3.0
-        or settings.mermaid_min_dpi != 450.0
+        or settings.mermaid_min_dpi != 300.0
     )
 
 

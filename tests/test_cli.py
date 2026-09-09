@@ -218,6 +218,44 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("No Markdown files found", stdout.getvalue())
 
+    def test_mermaid_quality_cli_presets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "demo.md"
+            source.write_text("# Demo\n```mermaid\ngraph TD;A-->B;\n```", encoding="utf-8")
+
+            with (
+                redirect_stdout(io.StringIO()),
+                patch("md2doc.cli.run_conversions") as run_conversions,
+            ):
+                run_conversions.return_value = []
+                code = cli.main(["convert", str(root), "demo.md", "--mermaid-quality", "high"])
+
+            self.assertEqual(code, 0)
+            _, _, settings = run_conversions.call_args.args
+            self.assertEqual(settings.mermaid_quality, "high")
+            self.assertEqual(settings.mermaid_scale, 5.0)
+            self.assertEqual(settings.mermaid_min_dpi, 450.0)
+
+    def test_mermaid_quality_cli_override_triggers_custom(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "demo.md"
+            source.write_text("# Demo\n```mermaid\ngraph TD;A-->B;\n```", encoding="utf-8")
+
+            with (
+                redirect_stdout(io.StringIO()),
+                patch("md2doc.cli.run_conversions") as run_conversions,
+            ):
+                run_conversions.return_value = []
+                code = cli.main(["convert", str(root), "demo.md", "--mermaid-quality", "medium", "--mermaid-scale", "4.0"])
+
+            self.assertEqual(code, 0)
+            _, _, settings = run_conversions.call_args.args
+            self.assertEqual(settings.mermaid_quality, "custom")
+            self.assertEqual(settings.mermaid_scale, 4.0)
+            self.assertEqual(settings.mermaid_min_dpi, 300.0)
+
 
 if __name__ == "__main__":
     unittest.main()

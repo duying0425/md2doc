@@ -25,9 +25,11 @@ from .project import (
     PROJECT_CONFIG_NAME,
     PROJECT_DIR_NAME,
     VALID_KINDS,
+    MERMAID_QUALITY_PRESETS,
     ProjectConfig,
     create_project,
     load_project,
+    quality_from_scale_dpi,
 )
 
 
@@ -205,6 +207,12 @@ def _add_conversion_arguments(parser: argparse.ArgumentParser, *, dry_run: bool)
     parser.add_argument("--default-font", default=None)
     parser.add_argument("--font-size", type=int, dest="default_font_size", default=None)
     parser.add_argument("--table-borders", choices=("template", "bordered", "plain"), default=None)
+    parser.add_argument(
+        "--mermaid-quality",
+        choices=("low", "medium", "high", "custom"),
+        default=None,
+        help="Mermaid image quality preset (low: 200 DPI, medium: 300 DPI, high: 450 DPI).",
+    )
     parser.add_argument("--mermaid-format", choices=("png", "svg", "pdf"), default=None)
     parser.add_argument("--mermaid-theme", default=None)
     parser.add_argument("--mermaid-background", default=None)
@@ -334,6 +342,14 @@ def _settings_from_args(config: ProjectConfig, args: argparse.Namespace) -> Conv
     )
 
     overrides = {}
+    if getattr(args, "mermaid_quality", None) is not None:
+        quality = args.mermaid_quality
+        overrides["mermaid_quality"] = quality
+        if quality in MERMAID_QUALITY_PRESETS:
+            preset_scale, preset_dpi = MERMAID_QUALITY_PRESETS[quality]
+            overrides["mermaid_scale"] = preset_scale
+            overrides["mermaid_min_dpi"] = preset_dpi
+
     for name in (
         "recursive",
         "sync_deletes",
@@ -371,6 +387,10 @@ def _settings_from_args(config: ProjectConfig, args: argparse.Namespace) -> Conv
         value = getattr(args, name, None)
         if value is not None:
             overrides[name] = value
+            if name in ("mermaid_scale", "mermaid_min_dpi"):
+                current_scale = overrides.get("mermaid_scale", settings.mermaid_scale)
+                current_dpi = overrides.get("mermaid_min_dpi", settings.mermaid_min_dpi)
+                overrides["mermaid_quality"] = quality_from_scale_dpi(current_scale, current_dpi)
     if args.pandoc_arg:
         overrides["extra_pandoc_args"] = (*settings.extra_pandoc_args, *args.pandoc_arg)
     if overrides:

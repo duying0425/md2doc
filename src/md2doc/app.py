@@ -43,14 +43,31 @@ from .project import (
     KIND_HTML2PDF,
     KIND_MD2DOC,
     KIND_QMD2PPT,
+    MERMAID_QUALITY_PRESETS,
     PROJECT_DIR_NAME,
     ProjectConfig,
     ProjectRegistry,
     app_data_dir,
     create_project,
     load_project,
+    quality_from_scale_dpi,
 )
 from . import __version__
+
+
+MERMAID_QUALITY_CHOICES = (
+    "中 (标准 / 300 DPI)",
+    "高 (高清 / 450 DPI)",
+    "低 (草稿 / 200 DPI)",
+    "自定义 (Custom)",
+)
+MERMAID_QUALITY_DISPLAY = {
+    "medium": "中 (标准 / 300 DPI)",
+    "high": "高 (高清 / 450 DPI)",
+    "low": "低 (草稿 / 200 DPI)",
+    "custom": "自定义 (Custom)",
+}
+MERMAID_DISPLAY_TO_QUALITY = {v: k for k, v in MERMAID_QUALITY_DISPLAY.items()}
 
 
 SCAN_TABLE_BATCH_SIZE = 250
@@ -1381,11 +1398,17 @@ class SettingsDialog(tk.Toplevel):
         self.figure_numbering_var = tk.BooleanVar(value=project.figure_numbering)
         self.figure_prefix_var = tk.StringVar(value=project.figure_prefix)
         self.figure_caption_position_var = tk.StringVar(value=project.figure_caption_position)
+        self.mermaid_quality_var = tk.StringVar(
+            value=MERMAID_QUALITY_DISPLAY.get(project.mermaid_quality, MERMAID_QUALITY_DISPLAY["medium"])
+        )
         self.mermaid_format_var = tk.StringVar(value=project.mermaid_format)
         self.mermaid_theme_var = tk.StringVar(value=project.mermaid_theme)
         self.mermaid_background_var = tk.StringVar(value=project.mermaid_background)
         self.mermaid_scale_var = tk.StringVar(value=str(project.mermaid_scale or ""))
         self.mermaid_min_dpi_var = tk.StringVar(value=str(project.mermaid_min_dpi))
+        self._updating_mermaid_fields = False
+        self.mermaid_scale_var.trace_add("write", self._on_mermaid_scale_or_dpi_changed)
+        self.mermaid_min_dpi_var.trace_add("write", self._on_mermaid_scale_or_dpi_changed)
         self.d2_theme_var = tk.StringVar(value=project.d2_theme)
         self.d2_layout_var = tk.StringVar(value=project.d2_layout)
         self.d2_sketch_var = tk.BooleanVar(value=project.d2_sketch)
@@ -1550,31 +1573,68 @@ class SettingsDialog(tk.Toplevel):
             width=12,
         ).grid(row=6, column=1, sticky="w", pady=self.parent._pad(8, 0))
 
+    def _on_mermaid_quality_selected(self, _event: Any = None) -> None:
+        quality_text = self.mermaid_quality_var.get()
+        quality_key = MERMAID_DISPLAY_TO_QUALITY.get(quality_text)
+        if quality_key in MERMAID_QUALITY_PRESETS:
+            scale, min_dpi = MERMAID_QUALITY_PRESETS[quality_key]
+            self._updating_mermaid_fields = True
+            try:
+                self.mermaid_scale_var.set(str(scale))
+                self.mermaid_min_dpi_var.set(str(min_dpi))
+            finally:
+                self._updating_mermaid_fields = False
+
+    def _on_mermaid_scale_or_dpi_changed(self, *_args: Any) -> None:
+        if getattr(self, "_updating_mermaid_fields", False):
+            return
+        try:
+            scale = float(self.mermaid_scale_var.get())
+            dpi = float(self.mermaid_min_dpi_var.get())
+            detected = quality_from_scale_dpi(scale, dpi)
+        except (ValueError, TypeError):
+            detected = "custom"
+        expected_text = MERMAID_QUALITY_DISPLAY.get(detected, MERMAID_QUALITY_DISPLAY["custom"])
+        if self.mermaid_quality_var.get() != expected_text:
+            self.mermaid_quality_var.set(expected_text)
+
     def _build_mermaid_tab(self, frame: ttk.Frame) -> None:
         frame.columnconfigure(1, weight=1)
+
+        ttk.Label(frame, text="Quality (清晰度)").grid(row=0, column=0, sticky="w", pady=self.parent._pad(4, 0))
+        quality_combo = ttk.Combobox(
+            frame,
+            textvariable=self.mermaid_quality_var,
+            values=MERMAID_QUALITY_CHOICES,
+            state="readonly",
+            width=22,
+        )
+        quality_combo.grid(row=0, column=1, sticky="w", pady=self.parent._pad(4, 0))
+        quality_combo.bind("<<ComboboxSelected>>", self._on_mermaid_quality_selected)
+
         fields = [
-            ("Theme", self.mermaid_theme_var),
-            ("Background", self.mermaid_background_var),
             ("Scale", self.mermaid_scale_var),
             ("Min DPI", self.mermaid_min_dpi_var),
+            ("Theme", self.mermaid_theme_var),
+            ("Background", self.mermaid_background_var),
         ]
-        for row, (label, variable) in enumerate(fields):
-            ttk.Label(frame, text=label).grid(row=row, column=0, sticky="w", pady=self.parent._pad(4, 0))
+        for idx, (label, variable) in enumerate(fields, start=1):
+            ttk.Label(frame, text=label).grid(row=idx, column=0, sticky="w", pady=self.parent._pad(4, 0))
             ttk.Entry(frame, textvariable=variable).grid(
-                row=row,
+                row=idx,
                 column=1,
                 sticky="ew",
                 pady=self.parent._pad(4, 0),
             )
 
-        ttk.Label(frame, text="Format").grid(row=4, column=0, sticky="w", pady=self.parent._pad(8, 0))
+        ttk.Label(frame, text="Format").grid(row=5, column=0, sticky="w", pady=self.parent._pad(8, 0))
         ttk.Combobox(
             frame,
             textvariable=self.mermaid_format_var,
             values=("png", "svg", "pdf"),
             state="readonly",
             width=10,
-        ).grid(row=4, column=1, sticky="w", pady=self.parent._pad(8, 0))
+        ).grid(row=5, column=1, sticky="w", pady=self.parent._pad(8, 0))
 
     def _build_d2_drawio_tab(self, frame: ttk.Frame) -> None:
         frame.columnconfigure(1, weight=1)
@@ -1675,6 +1735,9 @@ class SettingsDialog(tk.Toplevel):
             self.figure_numbering_var.set(defaults.figure_numbering)
             self.figure_prefix_var.set(defaults.figure_prefix)
             self.figure_caption_position_var.set(defaults.figure_caption_position)
+            self.mermaid_quality_var.set(
+                MERMAID_QUALITY_DISPLAY.get(defaults.mermaid_quality, MERMAID_QUALITY_DISPLAY["medium"])
+            )
             self.mermaid_format_var.set(defaults.mermaid_format)
             self.mermaid_theme_var.set(defaults.mermaid_theme)
             self.mermaid_background_var.set(defaults.mermaid_background)
@@ -1732,6 +1795,33 @@ class SettingsDialog(tk.Toplevel):
             )
             if self.mermaid_min_dpi_var.get().strip() == "":
                 mermaid_min_dpi = 450.0
+            quality_key = MERMAID_DISPLAY_TO_QUALITY.get(self.mermaid_quality_var.get(), "custom")
+            if quality_key in MERMAID_QUALITY_PRESETS and (
+                self.mermaid_scale_var.get().strip() == "" or self.mermaid_min_dpi_var.get().strip() == ""
+            ):
+                default_scale, default_dpi = MERMAID_QUALITY_PRESETS[quality_key]
+                mermaid_scale = default_scale
+                mermaid_min_dpi = default_dpi
+            else:
+                mermaid_scale = _parse_float(
+                    self.mermaid_scale_var.get(),
+                    "Mermaid scale",
+                    minimum=0.0,
+                    maximum=10.0,
+                    allow_empty=True,
+                )
+                if mermaid_scale == 0.0 or self.mermaid_scale_var.get().strip() == "":
+                    mermaid_scale = 3.0
+                mermaid_min_dpi = _parse_float(
+                    self.mermaid_min_dpi_var.get(),
+                    "Mermaid min DPI",
+                    minimum=0.0,
+                    maximum=2400.0,
+                    allow_empty=True,
+                )
+                if self.mermaid_min_dpi_var.get().strip() == "":
+                    mermaid_min_dpi = 300.0
+                quality_key = quality_from_scale_dpi(mermaid_scale, mermaid_min_dpi)
         except ValueError as exc:
             messagebox.showerror("Settings", str(exc), parent=self)
             return
@@ -1749,6 +1839,7 @@ class SettingsDialog(tk.Toplevel):
         self.project.figure_numbering = self.figure_numbering_var.get()
         self.project.figure_prefix = self.figure_prefix_var.get().strip() or "图"
         self.project.figure_caption_position = self.figure_caption_position_var.get()
+        self.project.mermaid_quality = quality_key
         self.project.mermaid_format = self.mermaid_format_var.get()
         self.project.mermaid_theme = self.mermaid_theme_var.get().strip() or "default"
         self.project.mermaid_background = self.mermaid_background_var.get().strip() or "white"

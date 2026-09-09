@@ -155,6 +155,7 @@ Common `plan` and `convert` options:
 - `--title-page`, `--title`, `--subtitle`, `--author`, `--date`: metadata options.
 - `--reference-docx <file>`, `--default-font <name>`, `--font-size <n>` (CLI only), `--table-borders template|bordered|plain`, `--hr-to-pagebreak` / `--no-hr-to-pagebreak`: DOCX styling and layout options.
 - `--mermaid-format png|svg|pdf`, `--mermaid-theme <name>`, `--mermaid-background <value>`, `--mermaid-scale <n>`, `--mermaid-min-dpi <n>`: Mermaid rendering and sizing options.
+- `--mermaid-quality low|medium|high|custom` (quality preset: low 200 DPI, medium 300 DPI default, high 450 DPI), `--mermaid-format png|svg|pdf`, `--mermaid-theme <name>`, `--mermaid-background <value>`, `--mermaid-scale <n>`, `--mermaid-min-dpi <n>`: Mermaid rendering and sizing options.
 - `--d2-cmd <cmd>`, `--d2-theme <id>`, `--d2-layout <dagre|elk|tala>`, `--d2-sketch` / `--no-d2-sketch`, `--d2-pad <n>`: D2 rendering and styling options.
 - `--drawio-cmd <cmd>`, `--drawio-theme <light|dark>`: Draw.io rendering and theme options.
 - `--figure-numbering` / `--no-figure-numbering`, `--figure-prefix <label>`, `--figure-caption-position below|above`: number image captions with Word `SEQ` fields.

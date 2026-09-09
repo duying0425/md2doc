@@ -152,6 +152,7 @@ md2doc convert C:\docs\README.md --format docx
 - `--title-page`、`--title`、`--subtitle`、`--author`、`--date`：文档元数据选项。
 - `--reference-docx <file>`、`--default-font <name>`、`--font-size <n>`（仅限命令行）、`--table-borders template|bordered|plain`、`--hr-to-pagebreak` / `--no-hr-to-pagebreak`：DOCX 样式与布局选项。
 - `--mermaid-format png|svg|pdf`、`--mermaid-theme <name>`、`--mermaid-background <value>`、`--mermaid-scale <n>`、`--mermaid-min-dpi <n>`：Mermaid 渲染和尺寸选项。
+- `--mermaid-quality low|medium|high|custom`（清晰度预设：低 200 DPI、中 300 DPI 默认、高 450 DPI）、`--mermaid-format png|svg|pdf`、`--mermaid-theme <name>`、`--mermaid-background <value>`、`--mermaid-scale <n>`、`--mermaid-min-dpi <n>`：Mermaid 渲染和尺寸选项。
 - `--d2-cmd <cmd>`、`--d2-theme <id>`、`--d2-layout <dagre|elk|tala>`、`--d2-sketch` / `--no-d2-sketch`、`--d2-pad <n>`：D2 渲染与样式选项。
 - `--drawio-cmd <cmd>`、`--drawio-theme <light|dark>`：Draw.io 渲染与主题选项。
 - `--figure-numbering` / `--no-figure-numbering`、`--figure-prefix <label>`、`--figure-caption-position below|above`：使用 Word 原生 `SEQ` 域为图片题注编号。

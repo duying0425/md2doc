@@ -321,9 +321,15 @@ class ConverterTests(unittest.TestCase):
             self.assertEqual(settings.mermaid_format, "svg")
             self.assertEqual(settings.mermaid_scale, 2.5)
             self.assertEqual(settings.mermaid_min_dpi, 360.0)
+            self.assertEqual(settings.mermaid_quality, "custom")
             self.assertTrue(settings.figure_numbering)
             self.assertEqual(settings.figure_prefix, "图")
             self.assertEqual(settings.figure_caption_position, "above")
+
+    def test_settings_signature_includes_mermaid_quality(self) -> None:
+        sig1 = settings_signature(ConvertSettings(mermaid_quality="medium"))
+        sig2 = settings_signature(ConvertSettings(mermaid_quality="high"))
+        self.assertNotEqual(sig1, sig2)
 
     def test_settings_signature_resolves_reference_docx_relative_to_project_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -416,7 +422,7 @@ class ConverterTests(unittest.TestCase):
 
         self.assertNotIn("MERMAID_FILTER_WIDTH", env)
         self.assertEqual(env["MERMAID_FILTER_SCALE"], "3.0")
-        self.assertEqual(env["MERMAID_FILTER_MIN_DPI"], "450.0")
+        self.assertEqual(env["MERMAID_FILTER_MIN_DPI"], "300.0")
         self.assertEqual(env["MERMAID_FILTER_FORMAT"], "png")
 
     def test_mermaid_environment_uses_custom_scale(self) -> None:

@@ -307,8 +307,62 @@ class ProjectKindTests(unittest.TestCase):
                 # Check that config version is upgraded, and defaults are migrated
                 self.assertEqual(config.config_version, CURRENT_PROJECT_CONFIG_VERSION)
                 self.assertEqual(config.mermaid_scale, 3.0)
-                self.assertEqual(config.mermaid_min_dpi, 450.0)
+                self.assertEqual(config.mermaid_min_dpi, 300.0)
+                self.assertEqual(config.mermaid_quality, "medium")
                 self.assertTrue(config.config_was_migrated)
+
+    def test_mermaid_quality_presets_and_serialization(self) -> None:
+        from md2doc.project import MERMAID_QUALITY_PRESETS, quality_from_scale_dpi
+
+        self.assertEqual(quality_from_scale_dpi(2.0, 200.0), "low")
+        self.assertEqual(quality_from_scale_dpi(3.0, 300.0), "medium")
+        self.assertEqual(quality_from_scale_dpi(5.0, 450.0), "high")
+        self.assertEqual(quality_from_scale_dpi(3.5, 300.0), "custom")
+
+        # from_dict with explicit quality preset
+        config = ProjectConfig.from_dict({
+            "name": "QualityTest",
+            "root": "/tmp/test",
+            "mermaid_quality": "high",
+        })
+        self.assertEqual(config.mermaid_quality, "high")
+        self.assertEqual(config.mermaid_scale, 5.0)
+        self.assertEqual(config.mermaid_min_dpi, 450.0)
+        self.assertEqual(config.to_dict()["mermaid_quality"], "high")
+
+        # from_dict with legacy config (scale=2.0, min_dpi=200.0) infers 'low'
+        config_legacy = ProjectConfig.from_dict({
+            "name": "LegacyQuality",
+            "root": "/tmp/test",
+            "mermaid_scale": 2.0,
+            "mermaid_min_dpi": 200.0,
+        })
+        self.assertEqual(config_legacy.mermaid_quality, "low")
+
+        # from_dict with legacy config from v5 default (scale=3.0, min_dpi=450.0)
+        # preserves exact values and marks as 'custom' so output does not change.
+        config_v5 = ProjectConfig.from_dict({
+            "name": "LegacyV5",
+            "root": "/tmp/test",
+            "config_version": 5,
+            "mermaid_scale": 3.0,
+            "mermaid_min_dpi": 450.0,
+        })
+        self.assertEqual(config_v5.mermaid_quality, "custom")
+        self.assertEqual(config_v5.mermaid_scale, 3.0)
+        self.assertEqual(config_v5.mermaid_min_dpi, 450.0)
+
+        # from_dict with arbitrary custom values (scale=2.5, min_dpi=360.0)
+        config_custom = ProjectConfig.from_dict({
+            "name": "LegacyCustom",
+            "root": "/tmp/test",
+            "config_version": 5,
+            "mermaid_scale": 2.5,
+            "mermaid_min_dpi": 360.0,
+        })
+        self.assertEqual(config_custom.mermaid_quality, "custom")
+        self.assertEqual(config_custom.mermaid_scale, 2.5)
+        self.assertEqual(config_custom.mermaid_min_dpi, 360.0)
 
 
 class ProjectRegistryTests(unittest.TestCase):

@@ -10,6 +10,21 @@ from typing import Any
 PROJECT_DIR_NAME = ".md2doc"
 PROJECT_CONFIG_NAME = "project.json"
 CURRENT_PROJECT_CONFIG_VERSION = 5
+CURRENT_PROJECT_CONFIG_VERSION = 6
+
+MERMAID_QUALITY_PRESETS: dict[str, tuple[float, float]] = {
+    "low": (2.0, 200.0),
+    "medium": (3.0, 300.0),
+    "high": (5.0, 450.0),
+}
+
+
+def quality_from_scale_dpi(scale: float, min_dpi: float) -> str:
+    for q, (s, d) in MERMAID_QUALITY_PRESETS.items():
+        if abs(scale - s) < 1e-4 and abs(min_dpi - d) < 1e-4:
+            return q
+    return "custom"
+
 
 KIND_MD2DOC = "md2doc"
 KIND_DOC2MD = "doc2md"
@@ -65,11 +80,13 @@ class ProjectConfig:
     default_font: str = ""
     default_font_size: int = 0
     table_borders: str = "template"
+    mermaid_quality: str = "medium"
     mermaid_format: str = "png"
     mermaid_theme: str = "default"
     mermaid_background: str = "white"
     mermaid_scale: float = 3.0
     mermaid_min_dpi: float = 450.0
+    mermaid_min_dpi: float = 300.0
     d2_theme: str = "default"
     d2_layout: str = "dagre"
     d2_sketch: bool = False
@@ -90,6 +107,21 @@ class ProjectConfig:
     config_version: int = CURRENT_PROJECT_CONFIG_VERSION
     loaded_config_version: int = field(default=CURRENT_PROJECT_CONFIG_VERSION, repr=False, compare=False)
     config_was_migrated: bool = field(default=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.mermaid_quality in MERMAID_QUALITY_PRESETS:
+            preset_scale, preset_dpi = MERMAID_QUALITY_PRESETS[self.mermaid_quality]
+            medium_scale, medium_dpi = MERMAID_QUALITY_PRESETS["medium"]
+            if (
+                self.mermaid_quality != "medium"
+                and abs(self.mermaid_scale - medium_scale) < 1e-4
+                and abs(self.mermaid_min_dpi - medium_dpi) < 1e-4
+            ):
+                self.mermaid_scale, self.mermaid_min_dpi = preset_scale, preset_dpi
+            elif abs(self.mermaid_scale - preset_scale) > 1e-4 or abs(self.mermaid_min_dpi - preset_dpi) > 1e-4:
+                self.mermaid_quality = quality_from_scale_dpi(self.mermaid_scale, self.mermaid_min_dpi)
+        elif self.mermaid_quality != "custom":
+            self.mermaid_quality = quality_from_scale_dpi(self.mermaid_scale, self.mermaid_min_dpi)
 
     @property
     def meta_dir(self) -> Path:
@@ -129,6 +161,7 @@ class ProjectConfig:
             "default_font": self.default_font,
             "default_font_size": self.default_font_size,
             "table_borders": self.table_borders,
+            "mermaid_quality": self.mermaid_quality,
             "mermaid_format": self.mermaid_format,
             "mermaid_theme": self.mermaid_theme,
             "mermaid_background": self.mermaid_background,
@@ -170,17 +203,30 @@ class ProjectConfig:
         scale_val = data.get("mermaid_scale")
         try:
             mermaid_scale = float(scale_val) if scale_val is not None else 3.0
-            if mermaid_scale == 0.0:
+            if mermaid_scale <= 0.0:
                 mermaid_scale = 3.0
         except (ValueError, TypeError):
             mermaid_scale = 3.0
         min_dpi_val = data.get("mermaid_min_dpi")
         try:
-            mermaid_min_dpi = float(min_dpi_val) if min_dpi_val is not None else 450.0
-            if mermaid_min_dpi < 0.0:
-                mermaid_min_dpi = 450.0
+            mermaid_min_dpi = float(min_dpi_val) if min_dpi_val is not None else 300.0
+            if mermaid_min_dpi <= 0.0:
+                mermaid_min_dpi = 300.0
         except (ValueError, TypeError):
-            mermaid_min_dpi = 450.0
+            mermaid_min_dpi = 300.0
+
+        raw_quality = data.get("mermaid_quality")
+        if raw_quality in MERMAID_QUALITY_PRESETS:
+            mermaid_quality = str(raw_quality)
+            preset_scale, preset_dpi = MERMAID_QUALITY_PRESETS[mermaid_quality]
+            if scale_val is None and min_dpi_val is None:
+                mermaid_scale, mermaid_min_dpi = preset_scale, preset_dpi
+            elif abs(mermaid_scale - preset_scale) > 1e-4 or abs(mermaid_min_dpi - preset_dpi) > 1e-4:
+                mermaid_quality = quality_from_scale_dpi(mermaid_scale, mermaid_min_dpi)
+        elif raw_quality == "custom":
+            mermaid_quality = "custom"
+        else:
+            mermaid_quality = quality_from_scale_dpi(mermaid_scale, mermaid_min_dpi)
 
         # Migrate figure_prefix: up to config_version 3 the default was "图".
         # From version 4 the default is "图表" (Word built-in Chinese label)
@@ -223,6 +269,7 @@ class ProjectConfig:
             default_font=str(data.get("default_font") or ""),
             default_font_size=int(data.get("default_font_size") or 0),
             table_borders=str(data.get("table_borders") or "template"),
+            mermaid_quality=mermaid_quality,
             mermaid_format=str(data.get("mermaid_format") or "png"),
             mermaid_theme=str(data.get("mermaid_theme") or "default"),
             mermaid_background=str(data.get("mermaid_background") or "white"),
@@ -336,6 +383,8 @@ def load_project(root: Path | str) -> ProjectConfig:
         min_dpi_needs_migration = stored_min_dpi is None or float(stored_min_dpi) < 0.0
     except (ValueError, TypeError):
         min_dpi_needs_migration = True
+    stored_quality = data.get("mermaid_quality")
+    quality_needs_migration = stored_quality is None or (stored_quality not in MERMAID_QUALITY_PRESETS and stored_quality != "custom")
 
     template_relative_path = (Path(PROJECT_DIR_NAME) / "reference.docx").as_posix()
     template_path = config.root / PROJECT_DIR_NAME / "reference.docx"
@@ -355,6 +404,7 @@ def load_project(root: Path | str) -> ProjectConfig:
         or data.get("output_format") != config.output_format
         or scale_needs_migration
         or min_dpi_needs_migration
+        or quality_needs_migration
         or reference_docx_migrated
     ):
         config.save()
