@@ -152,5 +152,34 @@ Here is an SVG codeblock with caption:
 
 
 
+    def test_convert_markdown_with_svg_in_chinese_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "测试目录_受控资料库"
+            root.mkdir(parents=True, exist_ok=True)
+            md_content = """# 中文路径测试
+
+```{.svg caption="部署架构图"}
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">
+  <rect width="200" height="100" fill="#2563eb"/>
+  <text x="50" y="55" fill="white">测试架构图</text>
+</svg>
+```
+"""
+            src = root / "测试.md"
+            src.write_text(md_content, encoding="utf-8")
+            settings = ConvertSettings(output_dir=root, output_format="docx", force=True)
+
+            results = run_conversions(root, [src], settings)
+            self.assertEqual(results[0].status, "converted", msg=results[0].message)
+
+            docx_path = root / "测试.docx"
+            self.assertTrue(docx_path.exists())
+            with zipfile.ZipFile(docx_path) as z:
+                media_files = [n for n in z.namelist() if n.startswith("word/media/") and n.endswith(".svg")]
+                self.assertGreaterEqual(len(media_files), 1)
+                doc_xml = z.read("word/document.xml").decode("utf-8")
+                self.assertNotIn("SourceCode", doc_xml)
+
+
 if __name__ == "__main__":
     unittest.main()

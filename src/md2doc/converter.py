@@ -833,6 +833,10 @@ def _run_subprocess_with_cancel(
     cancel_event: threading.Event | None = None,
     **kwargs,
 ) -> subprocess.CompletedProcess:
+    if text and encoding is None:
+        encoding = "utf-8"
+        if errors is None:
+            errors = "replace"
     if cancel_event is None:
         return subprocess.run(
             cmd,
@@ -1383,17 +1387,26 @@ local function split_path(str)
   return t
 end
 
-local function resolve_filepath(src)
-  local f = io.open(src, "rb")
+local function file_exists(path)
+  if pandoc.system and pandoc.system.read_file then
+    local ok, _ = pcall(pandoc.system.read_file, path)
+    if ok then return true end
+  end
+  local f = io.open(path, "rb")
   if f then
     f:close()
+    return true
+  end
+  return false
+end
+
+local function resolve_filepath(src)
+  if file_exists(src) then
     return src
   end
   
   local decoded = url_decode(src)
-  f = io.open(decoded, "rb")
-  if f then
-    f:close()
+  if file_exists(decoded) then
     return decoded
   end
   
@@ -1402,16 +1415,12 @@ local function resolve_filepath(src)
     local paths = split_path(paths_str)
     for _, path in ipairs(paths) do
       local full_path = path .. "/" .. decoded
-      f = io.open(full_path, "rb")
-      if f then
-        f:close()
+      if file_exists(full_path) then
         return full_path
       end
       -- also try backslash
       local full_path_bs = path .. "\\" .. decoded
-      f = io.open(full_path_bs, "rb")
-      if f then
-        f:close()
+      if file_exists(full_path_bs) then
         return full_path_bs
       end
     end
@@ -1552,6 +1561,10 @@ local drawio_theme = __MD2DOC_DRAWIO_THEME__
 local force_render = os.getenv("MD2DOC_FORCE_DIAGRAMS") == "1"
 
 local function file_exists(path)
+  if pandoc.system and pandoc.system.read_file then
+    local ok, _ = pcall(pandoc.system.read_file, path)
+    if ok then return true end
+  end
   local f = io.open(path, "rb")
   if f then
     f:close()
@@ -1566,6 +1579,10 @@ local function needs_render(path)
 end
 
 local function write_file(path, content)
+  if pandoc.system and pandoc.system.write_file then
+    local ok, _ = pcall(pandoc.system.write_file, path, content)
+    if ok then return true end
+  end
   local f = io.open(path, "wb")
   if f then
     f:write(content)
@@ -1596,15 +1613,11 @@ local function split_path(str)
 end
 
 local function resolve_filepath(src)
-  local f = io.open(src, "rb")
-  if f then
-    f:close()
+  if file_exists(src) then
     return src
   end
   local decoded = url_decode(src)
-  f = io.open(decoded, "rb")
-  if f then
-    f:close()
+  if file_exists(decoded) then
     return decoded
   end
   local paths_str = os.getenv("MD2DOC_RESOURCE_PATHS")
@@ -1612,11 +1625,9 @@ local function resolve_filepath(src)
     local paths = split_path(paths_str)
     for _, path in ipairs(paths) do
       local full_path = path .. "/" .. decoded
-      f = io.open(full_path, "rb")
-      if f then f:close() return full_path end
+      if file_exists(full_path) then return full_path end
       local full_path_bs = path .. "\\" .. decoded
-      f = io.open(full_path_bs, "rb")
-      if f then f:close() return full_path_bs end
+      if file_exists(full_path_bs) then return full_path_bs end
     end
   end
   return nil
