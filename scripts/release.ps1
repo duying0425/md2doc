@@ -34,9 +34,13 @@ $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $Python = Join-Path $Root ".venv\Scripts\python.exe"
 
-# 1. Validate that python exists (use virtual environment if present, otherwise fallback to system python)
 if (-not (Test-Path $Python)) {
-    $Python = "python"
+    $foundPython = (Get-Command "C:\Users\duyin\AppData\Local\Python\pythoncore-3.14-64\python.exe" -ErrorAction SilentlyContinue)
+    if ($foundPython) {
+        $Python = $foundPython.Source
+    } else {
+        $Python = "python"
+    }
 }
 
 # Auto-increment patch version if not specified
@@ -83,8 +87,20 @@ git tag "v$Version"
 
 # 6. Push branch and tag
 Write-Host "Pushing to remote..."
-git push origin main
-git push origin "v$Version"
+$pushed = $false
+for ($i = 1; $i -le 5; $i++) {
+    Write-Host "Push attempt $i..."
+    git push origin main
+    git push origin "v$Version"
+    if ($LASTEXITCODE -eq 0) {
+        $pushed = $true
+        break
+    }
+    Start-Sleep -Seconds 2
+}
+if (-not $pushed) {
+    throw "Failed to push to remote after 5 attempts."
+}
 
 Write-Host "Version v$Version pushed successfully! GitHub Actions will now automatically build the executable and publish the Release." -ForegroundColor Green
 
