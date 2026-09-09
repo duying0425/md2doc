@@ -38,8 +38,8 @@ docs/guide.md   -> docs/guide.docx
 
 - **文档（Document）**：目录、目录深度、章节编号、标题、副标题、作者和日期。
 - **Word**：`reference.docx`、默认字体（提供预设常用字体下拉框）、表格边框样式以及是否将水平分割线 (`---`) 转换为分页符。
-- **Mermaid**：图片格式、主题和背景。
-- **D2 & Draw.io**：D2 主题、布局引擎（dagre / elk / tala）、手绘草图风格（Sketch）、内边距，以及 Draw.io 主题。
+- **Mermaid**：清晰度预设（低 200 DPI、中 300 DPI 默认、高 450 DPI、自定义 Custom，与 Scale、Min DPI 自动双向联动）、图片格式、主题和背景颜色。
+- **D2 & Draw.io & SVG**：D2 主题、布局引擎（dagre / elk / tala）、手绘草图风格（Sketch）、内边距；Draw.io 主题与命令行工具路径；原生 SVG 矢量渲染支持与页面自适应版心保护。
 - **HTML 转 PDF**：浏览器视口宽高、设备缩放因子、渲染等待延迟以及是否打印背景图形。
 - **高级（Advanced）**：额外的 Pandoc 参数。
 
@@ -151,8 +151,8 @@ md2doc convert C:\docs\README.md --format docx
 - `--toc`、`--toc-depth <n>`、`--number-sections`：文档结构选项（目录、目录深度、章节编号）。
 - `--title-page`、`--title`、`--subtitle`、`--author`、`--date`：文档元数据选项。
 - `--reference-docx <file>`、`--default-font <name>`、`--font-size <n>`（仅限命令行）、`--table-borders template|bordered|plain`、`--hr-to-pagebreak` / `--no-hr-to-pagebreak`：DOCX 样式与布局选项。
-- `--mermaid-format png|svg|pdf`、`--mermaid-theme <name>`、`--mermaid-background <value>`、`--mermaid-scale <n>`、`--mermaid-min-dpi <n>`：Mermaid 渲染和尺寸选项。
-- `--mermaid-quality low|medium|high|custom`（清晰度预设：低 200 DPI、中 300 DPI 默认、高 450 DPI）、`--mermaid-format png|svg|pdf`、`--mermaid-theme <name>`、`--mermaid-background <value>`、`--mermaid-scale <n>`、`--mermaid-min-dpi <n>`：Mermaid 渲染和尺寸选项。
+- `--mermaid-quality low|medium|high|custom`：Mermaid 图片清晰度预设（`low`：200 DPI 草稿；`medium`：300 DPI 印刷级标准，默认；`high`：450 DPI 超高清出版级；`custom`：自定义参数）。
+- `--mermaid-format png|svg|pdf`、`--mermaid-theme <name>`、`--mermaid-background <value>`、`--mermaid-scale <n>`、`--mermaid-min-dpi <n>`：Mermaid 底层渲染与尺寸参数（若显式指定 `--mermaid-scale` 或 `--mermaid-min-dpi`，系统会自动将清晰度标记为 `custom`）。
 - `--d2-cmd <cmd>`、`--d2-theme <id>`、`--d2-layout <dagre|elk|tala>`、`--d2-sketch` / `--no-d2-sketch`、`--d2-pad <n>`：D2 渲染与样式选项。
 - `--drawio-cmd <cmd>`、`--drawio-theme <light|dark>`：Draw.io 渲染与主题选项。
 - `--figure-numbering` / `--no-figure-numbering`、`--figure-prefix <label>`、`--figure-caption-position below|above`：使用 Word 原生 `SEQ` 域为图片题注编号。
@@ -174,45 +174,44 @@ flowchart TD
 ```
 ````
 
-D2 图表、Draw.io 图表与原生 SVG 支持直接将代码或外部设计文件引入 Markdown 中：
+### 图表渲染与尺寸缩放控制 (SVG / Draw.io / D2)
 
-- **D2 架构图**（支持 Pandoc 属性题注或内部 `# caption:` 注释）：
+md2doc 深度集成了 D2、Draw.io 与原生 SVG 渲染引擎，支持直接将设计源码或外部工程文件引入 Markdown，并编译为 Word 原生矢量图（SVG 格式）：
+
+#### 1. 尺寸缩放与排版控制（Width & Scaling）
+- **代码块指定宽度**：所有图表代码块均支持通过属性指定显示宽度（支持百分比或物理尺寸单位）：
   ````markdown
-  ```{.d2 caption="微服务交互"}
-  client -> api_gateway: HTTP POST
-  api_gateway -> auth_service: Verify
-  api_gateway -> db: Save
+  ```{.drawio width="80%" caption="业务状态流转"}
+  <mxfile ...>...</mxfile>
+  ```
+  ```{.svg width="60%" caption="矢量架构图"}
+  <svg ...>...</svg>
+  ```
+  ```{.d2 width="100%" caption="服务拓扑"}
+  ...
   ```
   ````
-  或直接引用 `.d2` 源码文件：
+- **外部引用指定宽度**：引用外部图表文件时，可在 Markdown 链接尾部附加 Pandoc 属性：
   ```markdown
-  ![系统部署图](diagrams/arch.d2)
+  ![业务状态机](diagrams/state.drawio){width=85%}
+  ![微服务部署](diagrams/arch.d2){width=100%}
+  ![高清矢量图](assets/overview.svg){width=70%}
   ```
+- **智能自适应与版心保护**：
+  - 未显式指定宽度的图表，md2doc 会自动解析图表真实尺寸（`viewBox` 或像素范围），并将其最大尺寸限制在 Word 页面可用版心内（最大 6.0 英寸宽 / 8.5 英寸高），超出时自动等比缩小，**彻底避免图表过大撑破页面边距**。
+  - 所有图表在导出的 Word 文档中均默认自动居中排版。
 
-- **Draw.io 图表**（支持直接粘贴 `<mxfile>` 或 `<mxGraphModel>` XML 代码）：
-  ````markdown
-  ```drawio
-  <!-- caption: 业务状态机 -->
-  <mxfile ...>
-    ...
-  </mxfile>
-  ```
-  ````
-  或直接引用 `.drawio` 图表文件：
-  ```markdown
-  ![业务状态机](diagrams/state.drawio)
-  ```
+#### 2. Draw.io 图表支持
+- **剪贴板直接粘贴**：不仅支持完整的 `<mxfile>` XML 文档，还智能兼容直接从 Draw.io 网页或客户端复制的局部 `<mxGraphModel>...</mxGraphModel>` 片段（md2doc 会自动补全结构包裹）。
+- **离线与双渲染引擎**：
+  - 优先调用本机安装的 Draw.io 桌面版 CLI（自动探测常见安装路径）；
+  - 若未安装桌面版，系统会自动无缝回退至内置的 Playwright + 离线 `viewer-static.min.js`，**无需任何外网连接或代理配置，开箱即用**。
+- **纯矢量输出**：无论缩放还是高分辨率打印，图表中的线条与文字均保持原生的矢量锐利度。
 
-- **原生 SVG 代码与矢量图**：
-  ````markdown
-  ```svg
-  <!-- caption: 矢量示例 -->
-  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="50" cy="50" r="40" fill="#4f46e5" />
-  </svg>
-  ```
-  ````
-  也支持直接在 Markdown 内嵌入 `<svg>...</svg>` HTML 块，或通过 `![矢量图](assets/icon.svg)` 引用。转换时均会保留清晰锐利的矢量格式（Word 原生 SVG 支持）。
+#### 3. 原生 SVG 代码与矢量图
+- 支持 ```` ```svg ```` 代码块、纯 HTML `<svg>...</svg>` 标签块，以及 `![说明](path.svg)` 外部文件引用。
+- 自动提取内部注释中的题注（例如 `<!-- caption: 说明文字 -->`）。
+- **中文路径全兼容**：系统内部文件操作已全面升级，完整支持含中文字符的路径与文件名（如 `diagrams/整体架构图.drawio`），绝无编码乱码或文件读取失败问题。
 
 示例：
 

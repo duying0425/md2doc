@@ -37,8 +37,8 @@ Open **Settings** in the desktop app to configure:
 
 - Document: table of contents, TOC depth, section numbering, title, subtitle, author, and date.
 - Word: `reference.docx`, default font (with preset choices), table border style, and an option to convert horizontal rules to page breaks.
-- Mermaid: format, theme, and background.
-- D2 & Draw.io: D2 theme, layout engine (dagre / elk / tala), sketch mode, padding, and Draw.io theme.
+- Mermaid: quality preset (low 200 DPI, medium 300 DPI default, high 450 DPI, custom; synced two-way with Scale and Min DPI), format, theme, and background color.
+- D2 & Draw.io & SVG: D2 theme, layout engine (dagre / elk / tala), sketch mode, padding; Draw.io theme and CLI command; native SVG vector diagram rendering and page boundary protection.
 - HTML to PDF: viewport width/height, device scale factor, render delay, and print background graphics.
 - Advanced: extra Pandoc arguments.
 
@@ -154,8 +154,8 @@ Common `plan` and `convert` options:
 - `--toc`, `--toc-depth <n>`, `--number-sections`: document structure options.
 - `--title-page`, `--title`, `--subtitle`, `--author`, `--date`: metadata options.
 - `--reference-docx <file>`, `--default-font <name>`, `--font-size <n>` (CLI only), `--table-borders template|bordered|plain`, `--hr-to-pagebreak` / `--no-hr-to-pagebreak`: DOCX styling and layout options.
-- `--mermaid-format png|svg|pdf`, `--mermaid-theme <name>`, `--mermaid-background <value>`, `--mermaid-scale <n>`, `--mermaid-min-dpi <n>`: Mermaid rendering and sizing options.
-- `--mermaid-quality low|medium|high|custom` (quality preset: low 200 DPI, medium 300 DPI default, high 450 DPI), `--mermaid-format png|svg|pdf`, `--mermaid-theme <name>`, `--mermaid-background <value>`, `--mermaid-scale <n>`, `--mermaid-min-dpi <n>`: Mermaid rendering and sizing options.
+- `--mermaid-quality low|medium|high|custom`: Mermaid image quality preset (`low`: 200 DPI draft; `medium`: 300 DPI standard, default; `high`: 450 DPI publication; `custom`: manual override).
+- `--mermaid-format png|svg|pdf`, `--mermaid-theme <name>`, `--mermaid-background <value>`, `--mermaid-scale <n>`, `--mermaid-min-dpi <n>`: underlying Mermaid rendering parameters (specifying `--mermaid-scale` or `--mermaid-min-dpi` explicitly marks quality as `custom`).
 - `--d2-cmd <cmd>`, `--d2-theme <id>`, `--d2-layout <dagre|elk|tala>`, `--d2-sketch` / `--no-d2-sketch`, `--d2-pad <n>`: D2 rendering and styling options.
 - `--drawio-cmd <cmd>`, `--drawio-theme <light|dark>`: Draw.io rendering and theme options.
 - `--figure-numbering` / `--no-figure-numbering`, `--figure-prefix <label>`, `--figure-caption-position below|above`: number image captions with Word `SEQ` fields.
@@ -177,45 +177,44 @@ flowchart TD
 ```
 ````
 
-For D2 diagrams, Draw.io diagrams, and native SVG, you can paste the source code or reference diagram files directly in Markdown:
+### Diagram Rendering and Sizing Controls (SVG / Draw.io / D2)
 
-- **D2 Diagrams** (supports Pandoc caption attribute or inline `# caption:` comment):
+md2doc deeply integrates D2, Draw.io, and raw SVG rendering engines, allowing you to embed design source code or external project files directly in Markdown, compiling them into Word-native vector graphics (SVG format):
+
+#### 1. Width and Scaling Controls
+- **Specify width on code blocks**: all diagram code blocks support custom display widths using percentage or physical units:
   ````markdown
-  ```{.d2 caption="Service Interaction"}
-  client -> api_gateway: HTTP POST
-  api_gateway -> auth_service: Verify
-  api_gateway -> db: Save
+  ```{.drawio width="80%" caption="State Flow"}
+  <mxfile ...>...</mxfile>
+  ```
+  ```{.svg width="60%" caption="Architecture Overview"}
+  <svg ...>...</svg>
+  ```
+  ```{.d2 width="100%" caption="Service Topology"}
+  ...
   ```
   ````
-  Or reference a `.d2` file directly:
+- **Specify width on image links**: when referencing external diagram files, append Pandoc attributes to the link:
   ```markdown
-  ![Deployment Diagram](diagrams/arch.d2)
+  ![State Machine](diagrams/state.drawio){width=85%}
+  ![Deployment Diagram](diagrams/arch.d2){width=100%}
+  ![Vector Graphic](assets/overview.svg){width=70%}
   ```
+- **Intelligent boundary protection**:
+  - For diagrams without an explicit width, md2doc automatically inspects the graphic's viewport (`viewBox` or pixel bounds) and caps the maximum size to fit within the Word page margin (up to 6.0 in wide / 8.5 in tall), scaling down proportionally to **prevent oversized diagrams from overflowing page boundaries**.
+  - All diagrams and images are automatically centered in the exported Word document.
 
-- **Draw.io Diagrams** (supports pasting full `<mxfile>` or `<mxGraphModel>` XML directly):
-  ````markdown
-  ```drawio
-  <!-- caption: State Machine -->
-  <mxfile ...>
-    ...
-  </mxfile>
-  ```
-  ````
-  Or reference a `.drawio` file directly:
-  ```markdown
-  ![State Machine](diagrams/state.drawio)
-  ```
+#### 2. Draw.io Diagram Support
+- **Clipboard direct paste**: supports both full `<mxfile>` XML documents and partial `<mxGraphModel>...</mxGraphModel>` XML copied directly from the Draw.io web/desktop canvas.
+- **Dual rendering engine with offline fallback**:
+  - Prefers the installed official Draw.io desktop CLI (auto-discovers common Windows install locations).
+  - If Draw.io desktop is not installed, it automatically and silently falls back to headless Playwright using the bundled offline `viewer-static.min.js`, requiring **no internet access or proxy configuration**.
+- **Pure vector output**: diagrams remain sharp and crisp even at high zoom levels or high-DPI printing.
 
-- **Raw SVG Code and Files**:
-  ````markdown
-  ```svg
-  <!-- caption: Vector Graphic -->
-  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="50" cy="50" r="40" fill="#4f46e5" />
-  </svg>
-  ```
-  ````
-  Raw `<svg>...</svg>` HTML blocks or `![Graphic](assets/icon.svg)` references are also seamlessly converted to sharp vector graphics in the generated Word document.
+#### 3. Raw SVG Code and Files
+- Supports ```` ```svg ```` code blocks, inline `<svg>...</svg>` HTML blocks, and `![Graphic](path.svg)` file links.
+- Extracts captions automatically from leading HTML comments (e.g. `<!-- caption: Caption Text -->`).
+- **Full non-ASCII / Unicode path support**: file operations reliably handle Chinese, spaces, and non-ASCII characters in paths and filenames without encoding errors.
 
 Examples:
 
