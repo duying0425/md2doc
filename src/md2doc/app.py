@@ -56,15 +56,15 @@ from . import __version__
 
 
 MERMAID_QUALITY_CHOICES = (
+    "低 (草稿 / 200 DPI)",
     "中 (标准 / 300 DPI)",
     "高 (高清 / 450 DPI)",
-    "低 (草稿 / 200 DPI)",
     "自定义 (Custom)",
 )
 MERMAID_QUALITY_DISPLAY = {
+    "low": "低 (草稿 / 200 DPI)",
     "medium": "中 (标准 / 300 DPI)",
     "high": "高 (高清 / 450 DPI)",
-    "low": "低 (草稿 / 200 DPI)",
     "custom": "自定义 (Custom)",
 }
 MERMAID_DISPLAY_TO_QUALITY = {v: k for k, v in MERMAID_QUALITY_DISPLAY.items()}
